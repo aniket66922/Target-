@@ -76,17 +76,16 @@ def login_page():
         .logo { font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: #00ff88; text-align: center; margin-bottom: 20px; letter-spacing: 2px; }
         .input-group { margin-bottom: 15px; }
         .input-group label { display: block; font-size: 11px; color: #718096; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
-        input { width: 100%; padding: 12px 14px; background: #070a12; border: 1px solid #1f293d; border-radius: 10px; color: #fff; font-size: 14px; outline: none; transition: 0.3s; }
-        input:focus { border-color: #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.2); }
-        button { width: 100%; padding: 13px; background: #00ff88; border: none; border-radius: 10px; color: #07090e; font-weight: 700; font-size: 15px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; margin-top: 10px; }
-        button:hover { background: #00dd75; box-shadow: 0 0 15px rgba(0,255,136,0.4); }
+        input { width: 100%; padding: 12px 14px; background: #070a12; border: 1px solid #1f293d; border-radius: 10px; color: #fff; font-size: 14px; outline: none; }
+        input:focus { border-color: #00ff88; }
+        button { width: 100%; padding: 13px; background: #00ff88; border: none; border-radius: 10px; color: #07090e; font-weight: 700; font-size: 15px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; margin-top: 10px; }
         .links { text-align: center; margin-top: 18px; font-size: 13px; color: #718096; }
         .links a { color: #00ff88; text-decoration: none; font-weight: 600; }
     </style>
 </head>
 <body>
     <div class="card">
-        <div class="logo">🛡️ TARGET-SAAS</div>
+        <div class="logo">🛡️ TARGET PANEL</div>
         <form action="/auth/login" method="post">
             <div class="input-group"><label>Username</label><input name="username" placeholder="Enter username" required></div>
             <div class="input-group"><label>Password</label><input name="password" type="password" placeholder="••••••••" required></div>
@@ -114,9 +113,9 @@ def register_page():
         .sub { font-size: 12px; color: #718096; text-align: center; margin-bottom: 20px; }
         .input-group { margin-bottom: 15px; }
         .input-group label { display: block; font-size: 11px; color: #718096; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
-        input { width: 100%; padding: 12px 14px; background: #070a12; border: 1px solid #1f293d; border-radius: 10px; color: #fff; font-size: 14px; outline: none; transition: 0.3s; }
-        input:focus { border-color: #38bdf8; box-shadow: 0 0 10px rgba(56,189,248,0.2); }
-        button { width: 100%; padding: 13px; background: #38bdf8; border: none; border-radius: 10px; color: #07090e; font-weight: 700; font-size: 15px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: 0.3s; margin-top: 10px; }
+        input { width: 100%; padding: 12px 14px; background: #070a12; border: 1px solid #1f293d; border-radius: 10px; color: #fff; font-size: 14px; outline: none; }
+        input:focus { border-color: #38bdf8; }
+        button { width: 100%; padding: 13px; background: #38bdf8; border: none; border-radius: 10px; color: #07090e; font-weight: 700; font-size: 15px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; margin-top: 10px; }
         .links { text-align: center; margin-top: 18px; font-size: 13px; color: #718096; }
         .links a { color: #38bdf8; text-decoration: none; font-weight: 600; }
     </style>
@@ -130,7 +129,7 @@ def register_page():
             <div class="input-group"><label>Password</label><input name="password" type="password" placeholder="••••••••" required></div>
             <button type="submit">Submit Request</button>
         </form>
-        <div class="links">Already approved? <a href="/login">Sign In</a></div>
+        <div class="links">Already registered? <a href="/login">Sign In</a></div>
     </div>
 </body>
 </html>"""
@@ -174,150 +173,104 @@ def dashboard(u: dict = Depends(get_user)):
             keys = c.execute("SELECT * FROM licenses ORDER BY rowid DESC").fetchall()
             active_users = c.execute("SELECT * FROM users WHERE status='active' AND username!='owner'").fetchall()
             pending_users = c.execute("SELECT * FROM users WHERE status='pending'").fetchall()
-            blocked_count = len(c.execute("SELECT identifier FROM blacklist").fetchall())
         else:
             keys = c.execute("SELECT * FROM licenses WHERE created_by=? ORDER BY rowid DESC", (u["username"],)).fetchall()
             active_users = []
             pending_users = []
-            blocked_count = 0
             
     tot_keys = len(keys)
     used_keys = sum(1 for k in keys if k["status"] == "active")
     unused_keys = sum(1 for k in keys if k["status"] == "unused")
     tot_resellers = len(active_users)
 
-    k_tr = "".join(f"""
-        <tr>
-            <td style="font-family:monospace;color:#00ff88;font-weight:600;">{k['key']}</td>
-            <td>{k['duration_hours']} Hours</td>
-            <td><span class="badge {k['status']}">{k['status'].upper()}</span></td>
-            <td style="font-family:monospace;font-size:11px;color:#94a3b8;">{k['hwid'] or 'None'}</td>
-            <td style="font-size:11px;color:#94a3b8;">{k['expiry_at'] or '-'}</td>
-            <td>
-                <a href="/hwid/{k['key']}" class="btn-sm btn-cyan">Reset HWID</a>
-                <a href="/kdel/{k['key']}" class="btn-sm btn-red">Delete</a>
-            </td>
-        </tr>
-    """ for k in keys)
+    k_tr = "".join([f"<tr><td style='font-family:monospace;color:#00ff88;font-weight:600;'>{k['key']}</td><td>{k['duration_hours']}h</td><td><span class='badge {k['status']}'>{k['status'].upper()}</span></td><td style='font-family:monospace;font-size:11px;color:#94a3b8;'>{k['hwid'] or 'None'}</td><td style='font-size:11px;color:#94a3b8;'>{k['expiry_at'] or '-'}</td><td><a href='/hwid/{k['key']}' class='btn-sm btn-cyan'>Reset</a> <a href='/kdel/{k['key']}' class='btn-sm btn-red'>Del</a></td></tr>" for k in keys])
+    p_tr = "".join([f"<tr><td style='font-weight:600;color:#38bdf8;'>{p['username']}</td><td><span class='badge pending'>PENDING</span></td><td><a href='/user/approve/{p['id']}' class='btn-sm btn-green'>Approve (+10 CR)</a> <a href='/udel/{p['id']}' class='btn-sm btn-red'>Reject</a></td></tr>" for p in pending_users]) if pending_users else ""
+    u_tr = "".join([f"<tr><td style='font-weight:600;'>{x['username']}</td><td><span class='badge role'>{x['role'].upper()}</span></td><td style='color:#00ff88;font-weight:700;'>{x['credits']}</td><td><span class='badge active'>{x['status'].upper()}</span></td><td><a href='/udel/{x['id']}' class='btn-sm btn-red'>Delete</a></td></tr>" for x in active_users]) if active_users else ""
 
-    p_tr = "".join(f"""
-        <tr>
-            <td style="font-weight:600;color:#38bdf8;">{p['username']}</td>
-            <td><span class="badge pending">PENDING APPROVAL</span></td>
-            <td>
-                <a href="/user/approve/{p['id']}" class="btn-sm btn-green">Approve (+10 Credits)</a>
-                <a href="/udel/{p['id']}" class="btn-sm btn-red">Reject</a>
-            </td>
-        </tr>
-    """ for p in pending_users) if pending_users else ""
+    p_table = f"<div class='table-card' style='border-color:#38bdf8;'><div class='box-title' style='color:#38bdf8;'>⏳ PENDING APPROVALS</div><div class='table-responsive'><table><thead><tr><th>Username</th><th>Status</th><th>Actions</th></tr></thead><tbody>{p_tr}</tbody></table></div></div>" if pending_users else ""
+    u_table = f"<div class='table-card'><div class='box-title'>👥 RESELLERS DIRECTORY</div><div class='table-responsive'><table><thead><tr><th>Username</th><th>Role</th><th>Credits</th><th>Status</th><th>Actions</th></tr></thead><tbody>{u_tr}</tbody></table></div></div>" if active_users else ""
+    admin_boxes = f"""<div class="action-box"><div class="box-title">👤 ADD RESELLER</div><form action="/user/create" method="post"><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required><select name="role"><option value="reseller">Reseller</option><option value="admin">Admin</option></select><input name="credits" type="number" placeholder="Credits" value="50"><button type="submit" class="btn btn-cyan">+ Create User</button></form></div>
+    <div class="action-box"><div class="box-title">🛡️ FIREWALL (BAN)</div><form action="/block/add" method="post"><input name="ident" placeholder="HWID or IP Address" required><button type="submit" class="btn btn-red">🚫 Ban Target</button></form></div>""" if u["role"] in ["super_owner", "owner"] else ""
 
-    u_tr = "".join(f"""
-        <tr>
-            <td style="font-weight:600;">{x['username']}</td>
-            <td><span class="badge role">{x['role'].upper()}</span></td>
-            <td style="color:#00ff88;font-weight:700;">{x['credits']}</td>
-            <td><span class="badge active">{x['status'].upper()}</span></td>
-            <td>
-                <a href="/udel/{x['id']}" class="btn-sm btn-red">Delete</a>
-            </td>
-        </tr>
-    """ for x in active_users) if active_users else ""
-
-    return f"""<!DOCTYPE html>
+    html = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TARGET - Control Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }}
-        body {{ background: #07090e; color: #f1f5f9; padding-bottom: 90px; overflow-x: hidden; }}
-        .header {{ background: #0b0f19; border-bottom: 1px solid #161f33; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top:0; z-index: 100; }}
-        .brand {{ font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 800; color: #00ff88; letter-spacing: 2px; display: flex; align-items: center; gap: 8px; }}
-        .user-pill {{ background: #131b2e; border: 1px solid #1f2c4a; padding: 6px 14px; border-radius: 20px; font-size: 12px; display: flex; align-items: center; gap: 8px; }}
-        .container {{ padding: 16px; max-width: 1100px; margin: 0 auto; }}
-
-        /* Top Alert Banner */
-        .alert-banner {{ background: linear-gradient(90deg, rgba(0,255,136,0.1), rgba(14,19,31,0.9)); border: 1px solid rgba(0,255,136,0.3); border-left: 4px solid #00ff88; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; }}
-        .alert-title {{ font-size: 13px; font-weight: 600; color: #00ff88; }}
-        .alert-sub {{ font-size: 11px; color: #94a3b8; margin-top: 2px; }}
-
-        /* Stat Cards */
-        .stats-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }}
-        @media(min-width: 768px) {{ .stats-grid {{ grid-template-columns: repeat(4, 1fr); }} }}
-        .stat-card {{ background: #0e1322; border: 1px solid #172036; border-radius: 14px; padding: 18px 16px; position: relative; overflow: hidden; }}
-        .stat-card::after {{ content:''; position: absolute; top:0; left:0; width:100%; height:3px; }}
-        .stat-card.c-green::after {{ background: #00ff88; }}
-        .stat-card.c-blue::after {{ background: #38bdf8; }}
-        .stat-card.c-yellow::after {{ background: #f59e0b; }}
-        .stat-card.c-purple::after {{ background: #a855f7; }}
-        .stat-icon {{ font-size: 18px; margin-bottom: 6px; }}
-        .stat-num {{ font-family: 'Rajdhani', sans-serif; font-size: 28px; font-weight: 800; color: #fff; line-height: 1; margin-bottom: 4px; }}
-        .stat-lbl {{ font-size: 12px; color: #718096; font-weight: 500; }}
-
-        /* Action Forms Grid */
-        .actions-grid {{ display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 24px; }}
-        @media(min-width: 768px) {{ .actions-grid {{ grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }} }}
-        .action-box {{ background: #0e1322; border: 1px solid #172036; border-radius: 14px; padding: 18px; }}
-        .box-title {{ font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: #f8fafc; letter-spacing: 1px; margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }}
-
-        /* Form Inputs */
-        select, input {{ width: 100%; padding: 11px 12px; background: #07090e; border: 1px solid #1c263f; border-radius: 8px; color: #fff; font-size: 13px; margin-bottom: 10px; outline: none; transition: 0.2s; }}
-        select:focus, input:focus {{ border-color: #00ff88; }}
-        .btn {{ width: 100%; padding: 11px; border: none; border-radius: 8px; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; transition: 0.2s; }}
-        .btn-green {{ background: #00ff88; color: #07090e; }}
-        .btn-cyan {{ background: #38bdf8; color: #07090e; }}
-        .btn-red {{ background: #ef4444; color: #fff; }}
-
-        /* Table Card */
-        .table-card {{ background: #0e1322; border: 1px solid #172036; border-radius: 14px; padding: 18px; margin-bottom: 20px; overflow: hidden; }}
-        .table-responsive {{ overflow-x: auto; width: 100%; margin-top: 10px; }}
-        table {{ width: 100%; border-collapse: collapse; min-width: 600px; }}
-        th {{ background: #07090e; color: #718096; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 12px; text-align: left; }}
-        td {{ padding: 12px; border-bottom: 1px solid #141c2e; font-size: 13px; vertical-align: middle; }}
-        .btn-sm {{ display: inline-block; padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-decoration: none; margin-right: 4px; }}
-
-        /* Badges */
-        .badge {{ padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }}
-        .badge.active {{ background: rgba(0,255,136,0.15); color: #00ff88; }}
-        .badge.unused {{ background: rgba(245,158,11,0.15); color: #f59e0b; }}
-        .badge.expired {{ background: rgba(239,68,68,0.15); color: #ef4444; }}
-        .badge.pending {{ background: rgba(56,189,248,0.15); color: #38bdf8; }}
-        .badge.role {{ background: rgba(168,85,247,0.15); color: #a855f7; }}
-
-        /* Bottom Fixed Navigation Bar */
-        .bottom-nav {{ position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%); background: rgba(14,19,34,0.95); backdrop-filter: blur(10px); border: 1px solid #1f2c4a; border-radius: 30px; display: flex; gap: 25px; padding: 10px 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); z-index: 999; }}
-        .nav-item {{ color: #718096; font-size: 18px; text-decoration: none; display: flex; flex-direction: column; align-items: center; transition: 0.2s; }}
-        .nav-item.active, .nav-item:hover {{ color: #00ff88; }}
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+        body { background: #07090e; color: #f1f5f9; padding-bottom: 80px; }
+        .header { background: #0b0f19; border-bottom: 1px solid #161f33; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; position: sticky; top:0; z-index: 100; }
+        .brand { font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 800; color: #00ff88; letter-spacing: 2px; }
+        .user-pill { background: #131b2e; border: 1px solid #1f2c4a; padding: 6px 12px; border-radius: 20px; font-size: 11px; display: flex; align-items: center; gap: 8px; }
+        .container { padding: 14px; max-width: 1000px; margin: 0 auto; }
+        .alert-banner { background: linear-gradient(90deg, rgba(0,255,136,0.1), rgba(14,19,31,0.9)); border: 1px solid rgba(0,255,136,0.3); border-left: 4px solid #00ff88; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+        .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+        @media(min-width: 768px) { .stats-grid { grid-template-columns: repeat(4, 1fr); } }
+        .stat-card { background: #0e1322; border: 1px solid #172036; border-radius: 12px; padding: 14px; position: relative; }
+        .stat-card::after { content:''; position: absolute; top:0; left:0; width:100%; height:3px; }
+        .stat-card.c-green::after { background: #00ff88; }
+        .stat-card.c-blue::after { background: #38bdf8; }
+        .stat-card.c-yellow::after { background: #f59e0b; }
+        .stat-card.c-purple::after { background: #a855f7; }
+        .stat-num { font-family: 'Rajdhani', sans-serif; font-size: 24px; font-weight: 800; color: #fff; margin: 4px 0; }
+        .stat-lbl { font-size: 11px; color: #718096; }
+        .actions-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 16px; }
+        @media(min-width: 768px) { .actions-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); } }
+        .action-box { background: #0e1322; border: 1px solid #172036; border-radius: 12px; padding: 16px; }
+        .box-title { font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 700; color: #f8fafc; letter-spacing: 1px; margin-bottom: 12px; }
+        select, input { width: 100%; padding: 10px; background: #07090e; border: 1px solid #1c263f; border-radius: 8px; color: #fff; font-size: 12px; margin-bottom: 8px; outline: none; }
+        .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-weight: 700; font-size: 12px; text-transform: uppercase; cursor: pointer; }
+        .btn-green { background: #00ff88; color: #07090e; }
+        .btn-cyan { background: #38bdf8; color: #07090e; }
+        .btn-red { background: #ef4444; color: #fff; }
+        .table-card { background: #0e1322; border: 1px solid #172036; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+        .table-responsive { overflow-x: auto; width: 100%; margin-top: 8px; }
+        table { width: 100%; border-collapse: collapse; min-width: 500px; }
+        th { background: #07090e; color: #718096; font-size: 10px; text-transform: uppercase; padding: 10px; text-align: left; }
+        td { padding: 10px; border-bottom: 1px solid #141c2e; font-size: 12px; }
+        .btn-sm { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-decoration: none; margin-right: 4px; }
+        .badge { padding: 3px 6px; border-radius: 4px; font-size: 9px; font-weight: 800; }
+        .badge.active { background: rgba(0,255,136,0.15); color: #00ff88; }
+        .badge.unused { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .badge.expired { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .badge.pending { background: rgba(56,189,248,0.15); color: #38bdf8; }
+        .badge.role { background: rgba(168,85,247,0.15); color: #a855f7; }
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="brand">🛡️ TARGET-CHEAT</div>
+        <div class="brand">🛡️ TARGET PANEL</div>
         <div class="user-pill">
-            <span>👤 <b>{u['username'].upper()}</b> ({u['role']})</span>
-            <span style="color:#00ff88;font-weight:bold;">⚡ {u['credits']} CR</span>
-            <a href="/logout" style="color:#ef4444;text-decoration:none;font-weight:bold;margin-left:6px;">Logout</a>
+            <span>👤 __USERNAME__ (__ROLE__)</span>
+            <span style="color:#00ff88;font-weight:bold;">⚡ __CREDITS__ CR</span>
+            <a href="/logout" style="color:#ef4444;text-decoration:none;font-weight:bold;margin-left:4px;">Logout</a>
         </div>
     </div>
-
     <div class="container">
-        <!-- Top Status Banner -->
         <div class="alert-banner">
             <div>
-                <div class="alert-title">🔥 SYSTEM STATUS : OPERATIONAL</div>
-                <div class="alert-sub">FastAPI Verification Core running at Oregon DC</div>
+                <div style="font-size:12px;font-weight:600;color:#00ff88;">🔥 SYSTEM ONLINE</div>
+                <div style="font-size:10px;color:#94a3b8;">Verification Engine Active</div>
             </div>
-            <div style="color:#00ff88;font-size:20px;">✓</div>
+            <div style="color:#00ff88;">✓</div>
         </div>
-
-        <!-- 4 Stats Cards (Sample Style) -->
         <div class="stats-grid">
-            <div class="stat-card c-green">
-                <div class="stat-icon">🔑</div>
-                <div class="stat-num">{tot_keys}</div>
-                <div class="stat-lbl">Total Keys</div>
-            </div>
-            <div class="stat-card c-blue">
-                <div class="stat-icon">🔓</div>
-                <div cl
+            <div class="stat-card c-green"><div class="stat-num">__TOT_KEYS__</div><div class="stat-lbl">Total Keys</div></div>
+            <div class="stat-card c-blue"><div class="stat-num">__USED_KEYS__</div><div class="stat-lbl">Used Keys</div></div>
+            <div class="stat-card c-yellow"><div class="stat-num">__UNUSED_KEYS__</div><div class="stat-lbl">Unused Keys</div></div>
+            <div class="stat-card c-purple"><div class="stat-num">__TOT_RESELLERS__</div><div class="stat-lbl">Resellers</div></div>
+        </div>
+        <div class="actions-grid">
+            <div class="action-box">
+                <div class="box-title">⚡ GENERATE KEY</div>
+                <form action="/key/create" method="post">
+                    <select name="duration">
+                        <option value="1">1 Hour (0.1 Credit)</option>
+                        <option value="2">2 Hours (0.2 Credit)</option>
+                        <option value="5">5 Hours (0.5 Credit)</option>
+                        <option value="6">6 Hours (0.6 Credit)</option>
+                        <option value="12">12 Hours (1 Credit)</option>
+                        <option value="24">1 Day (2 Credits)</option>
+                        <option value=
