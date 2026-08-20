@@ -1,65 +1,26 @@
 from fastapi import FastAPI, HTTPException, Request, Form, Depends, Cookie, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
-import sqlite3
-import secrets
-import string
-import time
+import sqlite3, secrets, string, time
 from datetime import datetime, timedelta
 import jwt
 from passlib.context import CryptContext
 
-app = FastAPI(title="Licensing Control SaaS")
+app = FastAPI()
 DB_NAME = "database.db"
-SECRET_KEY = "SUPER_SECURE_JWT_SECRET_KEY_CHANGEME_IN_PRODUCTION"
-ALGORITHM = "HS256"
+SECRET_KEY = "SECRET_KEY_12345"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL;")
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL,
-            credits REAL DEFAULT 0,
-            status TEXT DEFAULT 'active',
-            created_by TEXT DEFAULT 'system',
-            created_at TEXT NOT NULL
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS licenses (
-            key TEXT PRIMARY KEY,
-            duration_hours REAL NOT NULL,
-            credit_cost REAL NOT NULL,
-            created_by TEXT NOT NULL,
-            status TEXT DEFAULT 'unused',
-            hwid TEXT DEFAULT NULL,
-            created_at TEXT NOT NULL,
-            activated_at TEXT DEFAULT NULL,
-            expiry_at TEXT DEFAULT NULL
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS blacklist (
-            identifier TEXT PRIMARY KEY,
-            type TEXT NOT NULL,
-            reason TEXT DEFAULT 'Blocked by Super Owner',
-            blocked_at TEXT NOT NULL
-        )
-    """)
-    cursor.execute("SELECT * FROM users WHERE username = 'owner'")
-    if not cursor.fetchone():
-        default_hash = pwd_context.hash("owner1234")
-        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
-            "INSERT INTO users (username, password_hash, role, credits, created_at) VALUES (?, ?, ?, ?, ?)",
-            ("owner", default_hash, "super_owner", 999999, now_str)
-        )
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, role TEXT, credits REAL, status TEXT, created_by TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS licenses (key TEXT PRIMARY KEY, duration_hours REAL, credit_cost REAL, created_by TEXT, status TEXT, hwid TEXT, expiry_at TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS blacklist (identifier TEXT PRIMARY KEY, type TEXT)")
+    c.execute("SELECT * FROM users WHERE username = 'owner'")
+    if not c.fetchone():
+        h = pwd_context.hash("owner1234")
+        c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES ('owner', ?, 'super_owner', 999999, 'active', 'system')", (h,))
     conn.commit()
     conn.close()
 
@@ -70,367 +31,192 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-def is_blacklisted(identifier: str):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT identifier FROM blacklist WHERE identifier = ?", (identifier,))
-    row = cursor.fetchone()
-    conn.close()
-    return bool(row)
-
-def create_jwt_token(username: str, role: str):
-    payload = {
-        "sub": username,
-        "role": role,
-        "exp": datetime.utcnow() + timedelta(days=2)
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
 def get_current_user(token: str = Cookie(None)):
     if not token:
         return None
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
+        data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-        user = cursor.fetchone()
+        u = conn.cursor().execute("SELECT * FROM users WHERE username = ?", (data.get("sub"),)).fetchone()
         conn.close()
-        if user and user["status"] == "active":
-            return dict(user)
-    except Exception:
+        if u and u["status"] == "active":
+            return dict(u)
+    except:
         return None
     return None
-
-request_history = {}
-def check_rate_limit(ip: str, max_requests=20, window_seconds=60):
-    now = time.time()
-    if ip not in request_history:
-        request_history[ip] = []
-    request_history[ip] = [t for t in request_history[ip] if now - t < window_seconds]
-    if len(request_history[ip]) >= max_requests:
-        return False
-    request_history[ip].append(now)
-    return True
 
 class VerifyRequest(BaseModel):
     key: str
     hwid: str
 
 @app.post("/api/verify")
-def verify_license(data: VerifyRequest, request: Request):
-    client_ip = request.client.host
-    if not check_rate_limit(client_ip, max_requests=10, window_seconds=60):
-        raise HTTPException(status_code=429, detail="Too Many Requests. Try later.")
-    if is_blacklisted(client_ip) or is_blacklisted(data.hwid):
-        raise HTTPException(status_code=403, detail="Device or IP is permanently banned.")
-        
+def verify(d: VerifyRequest, req: Request):
+    ip = req.client.host
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM licenses WHERE key = ?", (data.key,))
-    lic = cursor.fetchone()
-    
-    if not lic:
+    c = conn.cursor()
+    if c.execute("SELECT identifier FROM blacklist WHERE identifier IN (?, ?)", (ip, d.hwid)).fetchone():
         conn.close()
-        raise HTTPException(status_code=404, detail="Invalid License Key.")
-        
-    status_val = lic["status"]
-    stored_hwid = lic["hwid"]
-    duration_hours = lic["duration_hours"]
+        raise HTTPException(status_code=403, detail="Banned")
+    lic = c.execute("SELECT * FROM licenses WHERE key = ?", (d.key,)).fetchone()
+    if not lic or lic["status"] == "banned":
+        conn.close()
+        raise HTTPException(status_code=403, detail="Invalid/Banned Key")
     now = datetime.utcnow()
-    
-    if status_val == "banned":
-        conn.close()
-        raise HTTPException(status_code=403, detail="Key has been banned.")
-        
-    if status_val == "unused":
-        expiry_time = now + timedelta(hours=duration_hours)
-        act_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        exp_str = expiry_time.strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
-            "UPDATE licenses SET status = 'active', hwid = ?, activated_at = ?, expiry_at = ? WHERE key = ?",
-            (data.hwid, act_str, exp_str, data.key)
-        )
+    if lic["status"] == "unused":
+        exp = (now + timedelta(hours=lic["duration_hours"])).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("UPDATE licenses SET status='active', hwid=?, expiry_at=? WHERE key=?", (d.hwid, exp, d.key))
         conn.commit()
         conn.close()
-        return {"status": "success", "message": "Key activated successfully", "expiry": exp_str}
-        
-    if stored_hwid != data.hwid:
+        return {"status": "success", "expiry": exp}
+    if lic["hwid"] != d.hwid:
         conn.close()
-        raise HTTPException(status_code=403, detail="HWID mismatch. Key locked to another device.")
-        
-    expiry_dt = datetime.strptime(lic["expiry_at"], "%Y-%m-%d %H:%M:%S")
-    if now > expiry_dt:
-        cursor.execute("UPDATE licenses SET status = 'expired' WHERE key = ?", (data.key,))
+        raise HTTPException(status_code=403, detail="HWID Mismatch")
+    if now > datetime.strptime(lic["expiry_at"], "%Y-%m-%d %H:%M:%S"):
+        c.execute("UPDATE licenses SET status='expired' WHERE key=?", (d.key,))
         conn.commit()
         conn.close()
-        raise HTTPException(status_code=403, detail="License key expired.")
-        
+        raise HTTPException(status_code=403, detail="Expired")
     conn.close()
-    return {"status": "success", "message": "License valid", "expiry": lic["expiry_at"]}
+    return {"status": "success", "expiry": lic["expiry_at"]}
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page():
+def login_ui():
     return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Login - License Control</title>
-        <style>
-            * { box-sizing: border-box; font-family: sans-serif; margin: 0; padding: 0; }
-            body { background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; }
-            .card { background: #1e293b; padding: 32px; border-radius: 12px; width: 90%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
-            h2 { color: #10b981; margin-bottom: 20px; text-align: center; }
-            input { width: 100%; padding: 12px; margin-bottom: 16px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #fff; }
-            button { width: 100%; padding: 12px; background: #10b981; border: none; border-radius: 6px; color: #0f172a; font-weight: bold; cursor: pointer; }
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h2>⚡ Control Panel</h2>
-            <form action="/auth/login" method="post">
-                <input type="text" name="username" placeholder="Username" required>
-                <input type="password" name="password" placeholder="Password" required>
-                <button type="submit">Login</button>
-            </form>
-        </div>
+    <body style="background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+    <form action="/auth/login" method="post" style="background:#1e293b;padding:25px;border-radius:10px;display:flex;flex-direction:column;gap:12px;width:300px;">
+    <h2 style="color:#10b981;text-align:center;">Admin Login</h2>
+    <input name="username" placeholder="Username" style="padding:10px;background:#0f172a;border:1px solid #334155;color:#fff;border-radius:5px;" required>
+    <input name="password" type="password" placeholder="Password" style="padding:10px;background:#0f172a;border:1px solid #334155;color:#fff;border-radius:5px;" required>
+    <button type="submit" style="padding:10px;background:#10b981;font-weight:bold;border:none;border-radius:5px;cursor:pointer;">Login</button>
+    </form>
     </body>
-    </html>
     """
 
 @app.post("/auth/login")
-def auth_login(username: str = Form(...), password: str = Form(...)):
+def login(username: str = Form(...), password: str = Form(...)):
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-    user = cursor.fetchone()
+    u = conn.cursor().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
     conn.close()
-    
-    if not user or not pwd_context.verify(password, user["password_hash"]):
-        return HTMLResponse("<script>alert('Invalid Credentials'); window.location.href='/login';</script>")
-    
-    if user["status"] == "banned":
-        return HTMLResponse("<script>alert('Account Suspended'); window.location.href='/login';</script>")
-        
-    token = create_jwt_token(user["username"], user["role"])
-    response = RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
-    response.set_cookie(key="token", value=token, httponly=True, max_age=172800)
-    return response
+    if not u or not pwd_context.verify(password, u["password_hash"]):
+        return HTMLResponse("<script>alert('Wrong Login');location.href='/login';</script>")
+    token = jwt.encode({"sub": u["username"], "role": u["role"], "exp": datetime.utcnow() + timedelta(days=2)}, SECRET_KEY, algorithm="HS256")
+    res = RedirectResponse("/dashboard", status_code=302)
+    res.set_cookie("token", token, httponly=True)
+    return res
 
 @app.get("/logout")
 def logout():
-    response = RedirectResponse(url="/login")
-    response.delete_cookie("token")
-    return response
+    res = RedirectResponse("/login")
+    res.delete_cookie("token")
+    return res
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(user: dict = Depends(get_current_user)):
+def dashboard_ui(user: dict = Depends(get_current_user)):
     if not user:
-        return RedirectResponse(url="/login")
-        
+        return RedirectResponse("/login")
     conn = get_db()
-    cursor = conn.cursor()
-    
+    c = conn.cursor()
     if user["role"] in ["super_owner", "owner"]:
-        cursor.execute("SELECT COUNT(*) FROM licenses")
-        total_keys = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM licenses WHERE status = 'active'")
-        active_keys = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM licenses WHERE status = 'unused'")
-        unused_keys = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM users")
-        total_users = cursor.fetchone()[0]
-        cursor.execute("SELECT * FROM licenses ORDER BY created_at DESC LIMIT 50")
-        keys = cursor.fetchall()
-        cursor.execute("SELECT * FROM users ORDER BY id DESC")
-        all_users = cursor.fetchall()
+        keys = c.execute("SELECT * FROM licenses ORDER BY rowid DESC").fetchall()
+        users = c.execute("SELECT * FROM users").fetchall()
     else:
-        cursor.execute("SELECT COUNT(*) FROM licenses WHERE created_by = ?", (user["username"],))
-        total_keys = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM licenses WHERE created_by = ? AND status = 'active'", (user["username"],))
-        active_keys = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM licenses WHERE created_by = ? AND status = 'unused'", (user["username"],))
-        unused_keys = cursor.fetchone()[0]
-        total_users = 0
-        cursor.execute("SELECT * FROM licenses WHERE created_by = ? ORDER BY created_at DESC", (user["username"],))
-        keys = cursor.fetchall()
-        all_users = []
-        
+        keys = c.execute("SELECT * FROM licenses WHERE created_by = ? ORDER BY rowid DESC", (user["username"],)).fetchall()
+        users = []
     conn.close()
     
-    keys_rows = "".join(f"""
-        <tr>
-            <td>{k['key']}</td>
-            <td>{k['duration_hours']}h</td>
-            <td><span class="badge {k['status']}">{k['status']}</span></td>
-            <td>{k['hwid'] or 'None'}</td>
-            <td>{k['expiry_at'] or 'Not Activated'}</td>
-            <td>{k['created_by']}</td>
-            <td>
-                <a href="/reset-hwid/{k['key']}" style="color:#38bdf8; text-decoration:none; margin-right:8px;">Reset HWID</a>
-                <a href="/delete-key/{k['key']}" style="color:#ef4444; text-decoration:none;">Delete</a>
-            </td>
-        </tr>
-    """ for k in keys)
-
-    user_rows = "".join(f"""
-        <tr>
-            <td>{u['username']}</td>
-            <td><span class="badge role">{u['role']}</span></td>
-            <td>{u['credits']}</td>
-            <td>{u['status']}</td>
-            <td>{u['created_by']}</td>
-            <td>
-                {f"<a href='/user/demote/{u['id']}' style='color:#f59e0b; margin-right:8px;'>Ban</a><a href='/user/delete/{u['id']}' style='color:#ef4444;'>Delete</a>" if user['role'] == 'super_owner' and u['role'] != 'super_owner' else '-'}
-            </td>
-        </tr>
-    """ for u in all_users) if user["role"] in ["super_owner", "owner"] else ""
-
+    k_rows = "".join(f"<tr><td>{k['key']}</td><td>{k['duration_hours']}h</td><td>{k['status']}</td><td>{k['hwid'] or 'None'}</td><td>{k['expiry_at'] or '-'}</td><td><a href='/hwid/reset/{k['key']}' style='color:#38bdf8;'>Reset HWID</a> | <a href='/key/del/{k['key']}' style='color:#ef4444;'>Del</a></td></tr>" for k in keys)
+    u_rows = "".join(f"<tr><td>{u['username']}</td><td>{u['role']}</td><td>{u['credits']}</td><td>{u['status']}</td><td><a href='/user/del/{u['id']}' style='color:#ef4444;'>Del</a></td></tr>" for u in users) if users else ""
+    
     return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Dashboard</title>
-        <style>
-            * {{ box-sizing: border-box; font-family: sans-serif; margin: 0; padding: 0; }}
-            body {{ background: #0b0f19; color: #f1f5f9; padding: 15px; }}
-            .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 12px; }}
-            .brand {{ font-size: 18px; font-weight: bold; color: #10b981; }}
-            .user-tag {{ background: #1e293b; padding: 6px 12px; border-radius: 20px; font-size: 13px; }}
-            .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }}
-            .stat-card {{ background: #131d2e; border: 1px solid #1e293b; padding: 16px; border-radius: 8px; }}
-            .stat-title {{ color: #94a3b8; font-size: 12px; margin-bottom: 4px; }}
-            .stat-val {{ font-size: 20px; font-weight: bold; color: #38bdf8; }}
-            .box {{ background: #131d2e; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 20px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-            th, td {{ padding: 10px; border-bottom: 1px solid #1e293b; font-size: 12px; text-align: left; }}
-            th {{ background: #0f172a; color: #94a3b8; }}
-            .badge {{ padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }}
-            .badge.active {{ background: rgba(16,185,129,0.2); color: #10b981; }}
-            .badge.unused {{ background: rgba(245,158,11,0.2); color: #f59e0b; }}
-            .badge.expired {{ background: rgba(239,68,68,0.2); color: #ef4444; }}
-            .badge.role {{ background: rgba(56,189,248,0.2); color: #38bdf8; }}
-            input, select, button {{ padding: 8px 10px; background: #0b0f19; border: 1px solid #334155; border-radius: 6px; color: #fff; margin-right: 6px; margin-bottom: 8px; }}
-            button {{ background: #10b981; color: #0b0f19; font-weight: bold; cursor: pointer; border: none; }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <div class="brand">⚡ CONTROL PANEL</div>
-            <div class="user-tag"><b>{user['username']}</b> ({user['role'].upper()}) | Credits: <b>{user['credits']}</b> | <a href="/logout" style="color:#ef4444; text-decoration:none; margin-left:8px;">Logout</a></div>
-        </div>
-
-        <div class="stats">
-            <div class="stat-card"><div class="stat-title">Total Keys</div><div class="stat-val">{total_keys}</div></div>
-            <div class="stat-card"><div class="stat-title">Active Keys</div><div class="stat-val" style="color:#10b981;">{active_keys}</div></div>
-            <div class="stat-card"><div class="stat-title">Unused Keys</div><div class="stat-val" style="color:#f59e0b;">{unused_keys}</div></div>
-            {'<div class="stat-card"><div class="stat-title">Total Users</div><div class="stat-val">' + str(total_users) + '</div></div>' if user['role'] in ['super_owner', 'owner'] else ''}
-        </div>
-
-        <div class="box">
-            <h3>Generate License Key</h3>
-            <form action="/key/create" method="post" style="margin-top: 10px;">
-                <select name="duration">
-                    <option value="1">1 Hour (0.1 Credit)</option>
-                    <option value="2">2 Hours (0.2 Credit)</option>
-                    <option value="5">5 Hours (0.5 Credit)</option>
-                    <option value="6">6 Hours (0.6 Credit)</option>
-                    <option value="12">12 Hours (1 Credit)</option>
-                    <option value="24">1 Day (2 Credits)</option>
-                    <option value="168">7 Days (10 Credits)</option>
-                    <option value="360">15 Days (18 Credits)</option>
-                    <option value="720">30 Days (30 Credits)</option>
-                </select>
-                <button type="submit">+ Create Key</button>
-            </form>
-        </div>
-
-        {'<div class="box"><h3>Create User / Reseller</h3><form action="/user/create" method="post" style="margin-top:10px;"><input type="text" name="username" placeholder="Username" required><input type="password" name="password" placeholder="Password" required><select name="role"><option value="reseller">Reseller</option><option value="admin">Admin</option><option value="owner">Sub-Owner</option></select><input type="number" name="credits" placeholder="Credits" value="10" required><button type="submit">+ Create User</button></form></div>' if user['role'] in ['super_owner', 'owner'] else ''}
-
-        {'<div class="box"><h3>Device & IP Firewall</h3><form action="/blacklist/add" method="post" style="margin-top:10px;"><input type="text" name="identifier" placeholder="HWID or IP Address" required><select name="type"><option value="hwid">Device HWID</option><option value="ip">IP Address</option></select><button type="submit" style="background:#ef4444; color:#fff;">Block Device</button></form></div>' if user['role'] in ['super_owner', 'owner'] else ''}
-
-        {'<div class="box"><h3>Manage Users</h3><div style="overflow-x:auto;"><table><thead><tr><th>Username</th><th>Role</th><th>Credits</th><th>Status</th><th>Created By</th><th>Actions</th></tr></thead><tbody>' + user_rows + '</tbody></table></div></div>' if user['role'] in ['super_owner', 'owner'] else ''}
-
-        <div class="box">
-            <h3>License Keys History</h3>
-            <div style="overflow-x:auto;">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Key</th><th>Duration</th><th>Status</th><th>HWID</th><th>Expiry</th><th>Creator</th><th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {keys_rows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+    <body style="background:#0b0f19;color:#fff;font-family:sans-serif;padding:20px;">
+    <h2>⚡ PANEL ({user['username'].upper()} - {user['role']}) | Credits: {user['credits']} | <a href='/logout' style='color:#ef4444;'>Logout</a></h2>
+    <hr style="margin:15px 0;border-color:#1e293b;">
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        <form action="/key/create" method="post" style="background:#131d2e;padding:15px;border-radius:8px;">
+            <h3>Create Key</h3>
+            <select name="duration" style="padding:6px;margin:6px 0;background:#0b0f19;color:#fff;">
+                <option value="1">1 Hour</option><option value="2">2 Hours</option><option value="5">5 Hours</option>
+                <option value="6">6 Hours</option><option value="12">12 Hours</option><option value="24">1 Day</option>
+                <option value="168">7 Days</option><option value="360">15 Days</option><option value="720">30 Days</option>
+            </select>
+            <br><button type="submit" style="padding:6px 12px;background:#10b981;border:none;border-radius:4px;cursor:pointer;">Generate</button>
+        </form>
+        {'<form action="/user/create" method="post" style="background:#131d2e;padding:15px;border-radius:8px;"><h3>Create Reseller</h3><input name="username" placeholder="User" style="padding:6px;margin:4px 0;background:#0b0f19;color:#fff;" required><br><input name="password" placeholder="Pass" type="password" style="padding:6px;margin:4px 0;background:#0b0f19;color:#fff;" required><br><input name="credits" type="number" placeholder="Credits" value="50" style="padding:6px;margin:4px 0;background:#0b0f19;color:#fff;"><br><button type="submit" style="padding:6px 12px;background:#38bdf8;border:none;border-radius:4px;cursor:pointer;">Add User</button></form>' if user['role'] in ['super_owner','owner'] else ''}
+        {'<form action="/block/add" method="post" style="background:#131d2e;padding:15px;border-radius:8px;"><h3>Block Device/IP</h3><input name="ident" placeholder="HWID or IP" style="padding:6px;margin:6px 0;background:#0b0f19;color:#fff;" required><br><button type="submit" style="background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">Ban Target</button></form>' if user['role'] in ['super_owner','owner'] else ''}
+    </div>
+    {'<h3 style="margin-top:20px;">Users</h3><table border="1" cellpadding="8" style="border-collapse:collapse;width:100%;margin-top:5px;border-color:#334155;"><tr><th>User</th><th>Role</th><th>Credits</th><th>Status</th><th>Action</th></tr>' + u_rows + '</table>' if users else ''}
+    <h3 style="margin-top:20px;">Keys</h3>
+    <table border="1" cellpadding="8" style="border-collapse:collapse;width:100%;margin-top:5px;border-color:#334155;">
+        <tr><th>Key</th><th>Duration</th><th>Status</th><th>HWID</th><th>Expiry</th><th>Action</th></tr>
+        {k_rows}
+    </table>
     </body>
-    </html>
     """
 
 @app.post("/key/create")
 def create_key(duration: float = Form(...), user: dict = Depends(get_current_user)):
-    if not user:
-        return RedirectResponse(url="/login")
-        
-    credit_costs = {1: 0.1, 2: 0.2, 5: 0.5, 6: 0.6, 12: 1.0, 24: 2.0, 168: 10.0, 360: 18.0, 720: 30.0}
-    cost = credit_costs.get(int(duration), 1.0)
-    
+    if not user: return RedirectResponse("/login")
+    cost_map = {1: 0.1, 2: 0.2, 5: 0.5, 6: 0.6, 12: 1.0, 24: 2.0, 168: 10.0, 360: 18.0, 720: 30.0}
+    cost = cost_map.get(int(duration), 1.0)
     if user["role"] != "super_owner" and user["credits"] < cost:
-        return HTMLResponse("<script>alert('Insufficient Credits'); window.location.href='/dashboard';</script>")
-        
-    key_str = "KEY-" + "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        return HTMLResponse("<script>alert('Low Credits');location.href='/dashboard';</script>")
+    k_str = "KEY-" + "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO licenses (key, duration_hours, credit_cost, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, (key_str, duration, cost, user["username"], now_str))
-    
+    c = conn.cursor()
+    c.execute("INSERT INTO licenses VALUES (?, ?, ?, ?, 'unused', NULL, NULL)", (k_str, duration, cost, user["username"]))
     if user["role"] != "super_owner":
-        cursor.execute("UPDATE users SET credits = credits - ? WHERE id = ?", (cost, user["id"]))
-        
+        c.execute("UPDATE users SET credits = credits - ? WHERE id = ?", (cost, user["id"]))
     conn.commit()
     conn.close()
-    return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse("/dashboard", status_code=302)
 
-@app.get("/reset-hwid/{key}")
-def reset_hwid(key: str, user: dict = Depends(get_current_user)):
-    if not user:
-        return RedirectResponse(url="/login")
+@app.get("/hwid/reset/{k}")
+def r_hwid(k: str, user: dict = Depends(get_current_user)):
+    if not user: return RedirectResponse("/login")
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE licenses SET hwid = NULL WHERE key = ?", (key,))
+    conn.cursor().execute("UPDATE licenses SET hwid = NULL WHERE key = ?", (k,))
     conn.commit()
     conn.close()
-    return RedirectResponse(url="/dashboard")
+    return RedirectResponse("/dashboard")
 
-@app.get("/delete-key/{key}")
-def delete_key(key: str, user: dict = Depends(get_current_user)):
-    if not user:
-        return RedirectResponse(url="/login")
+@app.get("/key/del/{k}")
+def d_key(k: str, user: dict = Depends(get_current_user)):
+    if not user: return RedirectResponse("/login")
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM licenses WHERE key = ?", (key,))
+    conn.cursor().execute("DELETE FROM licenses WHERE key = ?", (k,))
     conn.commit()
     conn.close()
-    return RedirectResponse(url="/dashboard")
+    return RedirectResponse("/dashboard")
 
 @app.post("/user/create")
-def create_user(username: str = Form(...), password: str = Form(...), role: str = Form(...), credits: float = Form(...), user: dict = Depends(get_current_user)):
-    if not user or user["role"] not in ["super_owner", "owner"]:
-        return RedirectResponse(url="/login")
+def u_create(username: str = Form(...), password: str = Form(...), credits: float = Form(...), user: dict = Depends(get_current_user)):
+    if not user or user["role"] not in ["super_owner", "owner"]: return RedirectResponse("/login")
     conn = get_db()
-    cursor = conn.cursor()
-    hashed = pwd_context.hash(password)
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    h = pwd_context.hash(password)
     try:
-        cursor.execute("""
-            INSERT INTO users (username, password_hash, role, credits, created_by, created_at)
-         
+        conn.cursor().execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES (?, ?, 'reseller', ?, 'active', ?)", (username, h, credits, user["username"]))
+        conn.commit()
+    except: pass
+    conn.close()
+    return RedirectResponse("/dashboard", status_code=302)
+
+@app.get("/user/del/{uid}")
+def u_del(uid: int, user: dict = Depends(get_current_user)):
+    if not user or user["role"] != "super_owner": return RedirectResponse("/login")
+    conn = get_db()
+    conn.cursor().execute("DELETE FROM users WHERE id = ?", (uid,))
+    conn.commit()
+    conn.close()
+    return RedirectResponse("/dashboard")
+
+@app.post("/block/add")
+def b_add(ident: str = Form(...), user: dict = Depends(get_current_user)):
+    if not user or user["role"] not in ["super_owner", "owner"]: return RedirectResponse("/login")
+    conn = get_db()
+    try:
+        conn.cursor().execute("INSERT INTO blacklist VALUES (?, 'banned')", (ident,))
+        conn.commit()
+    except: pass
+    conn.close()
+    return RedirectResponse("/dashboard", status_code=302)
+
