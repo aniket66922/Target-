@@ -55,9 +55,10 @@ def init_db():
     cursor.execute("SELECT * FROM users WHERE username = 'owner'")
     if not cursor.fetchone():
         default_hash = pwd_context.hash("owner1234")
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
             "INSERT INTO users (username, password_hash, role, credits, created_at) VALUES (?, ?, ?, ?, ?)",
-            ("owner", default_hash, "super_owner", 999999, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+            ("owner", default_hash, "super_owner", 999999, now_str)
         )
     conn.commit()
     conn.close()
@@ -384,12 +385,13 @@ def create_key(duration: float = Form(...), user: dict = Depends(get_current_use
         return HTMLResponse("<script>alert('Insufficient Credits'); window.location.href='/dashboard';</script>")
         
     key_str = "KEY-" + "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO licenses (key, duration_hours, credit_cost, created_by, created_at)
         VALUES (?, ?, ?, ?, ?)
-    """, (key_str, duration, cost, user["username"], datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")))
+    """, (key_str, duration, cost, user["username"], now_str))
     
     if user["role"] != "super_owner":
         cursor.execute("UPDATE users SET credits = credits - ? WHERE id = ?", (cost, user["id"]))
@@ -427,8 +429,8 @@ def create_user(username: str = Form(...), password: str = Form(...), role: str 
     conn = get_db()
     cursor = conn.cursor()
     hashed = pwd_context.hash(password)
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     try:
         cursor.execute("""
             INSERT INTO users (username, password_hash, role, credits, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (username, hashed, role, credits, user["username"], datetime.utcnow(
+         
