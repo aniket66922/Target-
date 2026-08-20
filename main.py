@@ -1,14 +1,15 @@
-import sqlite3, secrets, string, time, jwt
+import sqlite3, secrets, string, hashlib, hmac
 from datetime import datetime, timedelta
-from passlib.context import CryptContext
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Request, Form, Depends, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 app = FastAPI()
 DB = "database.db"
-KEY = "SECRET_12345"
-pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_SALT = "SECURITY_SALT_SUPER_SECURE_99"
+
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256((pw + SECRET_SALT).encode()).hexdigest()
 
 def db():
     c = sqlite3.connect(DB)
@@ -21,15 +22,15 @@ def init():
         c.execute("CREATE TABLE IF NOT EXISTS licenses (key TEXT PRIMARY KEY, duration_hours REAL, credit_cost REAL, created_by TEXT, status TEXT, hwid TEXT, expiry_at TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS blacklist (identifier TEXT PRIMARY KEY)")
         if not c.execute("SELECT * FROM users WHERE username='owner'").fetchone():
-            c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES ('owner', ?, 'super_owner', 999999, 'active', 'system')", (pwd.hash("owner1234"),))
+            c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES ('owner', ?, 'super_owner', 999999, 'active', 'system')", (hash_pw("owner1234"),))
 init()
 
 def get_user(token: str = Cookie(None)):
-    if not token: return None
+    if not token or ":" not in token: return None
     try:
-        data = jwt.decode(token, KEY, algorithms=["HS256"])
+        user, role = token.split(":", 1)
         with db() as c:
-            u = c.execute("SELECT * FROM users WHERE username=?", (data.get("sub"),)).fetchone()
+            u = c.execute("SELECT * FROM users WHERE username=? AND role=?", (user, role)).fetchone()
             return dict(u) if u and u["status"] == "active" else None
     except: return None
 
@@ -42,9 +43,9 @@ def verify_api(d: VData, req: Request):
     ip = req.client.host
     with db() as c:
         if c.execute("SELECT identifier FROM blacklist WHERE identifier IN (?,?)", (ip, d.hwid)).fetchone():
-            raise HTTPException(403, "Banned")
+            raise HTTPException(403, "Device/IP Banned")
         lic = c.execute("SELECT * FROM licenses WHERE key=?", (d.key,)).fetchone()
-        if not lic or lic["status"] == "banned": raise HTTPException(403, "Invalid/Banned")
+        if not lic or lic["status"] == "banned": raise HTTPException(403, "Invalid/Banned Key")
         now = datetime.utcnow()
         if lic["status"] == "unused":
             exp = (now + timedelta(hours=lic["duration_hours"])).strftime("%Y-%m-%d %H:%M:%S")
@@ -53,7 +54,7 @@ def verify_api(d: VData, req: Request):
         if lic["hwid"] != d.hwid: raise HTTPException(403, "HWID Mismatch")
         if now > datetime.strptime(lic["expiry_at"], "%Y-%m-%d %H:%M:%S"):
             c.execute("UPDATE licenses SET status='expired' WHERE key=?", (d.key,))
-            raise HTTPException(403, "Expired")
+            raise HTTPException(403, "Key Expired")
         return {"status": "success", "expiry": lic["expiry_at"]}
 
 @app.get("/", response_class=RedirectResponse)
@@ -67,11 +68,10 @@ def login_page():
 def auth_login(username: str = Form(...), password: str = Form(...)):
     with db() as c:
         u = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-    if not u or not pwd.verify(password, u["password_hash"]) or u["status"] == "banned":
-        return HTMLResponse("<script>alert('Failed');location.href='/login';</script>")
-    token = jwt.encode({"sub": u["username"], "role": u["role"], "exp": datetime.utcnow() + timedelta(days=2)}, KEY, algorithm="HS256")
+    if not u or u["password_hash"] != hash_pw(password) or u["status"] == "banned":
+        return HTMLResponse("<script>alert('Invalid Login');location.href='/login';</script>")
     res = RedirectResponse("/dashboard", status_code=302)
-    res.set_cookie("token", token, httponly=True)
+    res.set_cookie("token", f"{u['username']}:{u['role']}", httponly=True)
     return res
 
 @app.get("/logout")
@@ -138,7 +138,7 @@ def k_del(k: str, u: dict = Depends(get_user)):
 def u_create(username: str = Form(...), password: str = Form(...), role: str = Form("reseller"), credits: float = Form(0), u: dict = Depends(get_user)):
     if not u or u["role"] not in ["super_owner", "owner"]: return RedirectResponse("/login")
     with db() as c:
-        try: c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES (?, ?, ?, ?, 'active', ?)", (username, pwd.hash(password), role, credits, u["username"]))
+        try: c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES (?, ?, ?, ?, 'active', ?)", (username, hash_pw(password), role, credits, u["username"]))
         except: pass
     return RedirectResponse("/dashboard", status_code=302)
 
@@ -155,4 +155,4 @@ def b_add(ident: str = Form(...), u: dict = Depends(get_user)):
         try: c.execute("INSERT INTO blacklist VALUES (?)", (ident,))
         except: pass
     return RedirectResponse("/dashboard", status_code=302)
-               
+    
