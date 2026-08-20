@@ -1,4 +1,4 @@
-    from fastapi import FastAPI, HTTPException, Request, Form, Depends, Cookie, status
+from fastapi import FastAPI, HTTPException, Request, Form, Depends, Cookie, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import sqlite3
@@ -15,13 +15,10 @@ SECRET_KEY = "SUPER_SECURE_JWT_SECRET_KEY_CHANGEME_IN_PRODUCTION"
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# ----------------- DATABASE INITIALIZATION -----------------
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL;")
-    
-    # Users table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,8 +31,6 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
-    
-    # Licenses table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS licenses (
             key TEXT PRIMARY KEY,
@@ -49,8 +44,6 @@ def init_db():
             expiry_at TEXT DEFAULT NULL
         )
     """)
-    
-    # Blacklist table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS blacklist (
             identifier TEXT PRIMARY KEY,
@@ -59,8 +52,6 @@ def init_db():
             blocked_at TEXT NOT NULL
         )
     """)
-    
-    # Default Super Owner Check
     cursor.execute("SELECT * FROM users WHERE username = 'owner'")
     if not cursor.fetchone():
         default_hash = pwd_context.hash("owner1234")
@@ -73,7 +64,6 @@ def init_db():
 
 init_db()
 
-# ----------------- SECURITY & HELPERS -----------------
 def get_db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
@@ -112,7 +102,6 @@ def get_current_user(token: str = Cookie(None)):
         return None
     return None
 
-# Rate Limiter (IP Based)
 request_history = {}
 def check_rate_limit(ip: str, max_requests=20, window_seconds=60):
     now = time.time()
@@ -124,7 +113,6 @@ def check_rate_limit(ip: str, max_requests=20, window_seconds=60):
     request_history[ip].append(now)
     return True
 
-# ----------------- LOADER / CLIENT API -----------------
 class VerifyRequest(BaseModel):
     key: str
     hwid: str
@@ -132,10 +120,8 @@ class VerifyRequest(BaseModel):
 @app.post("/api/verify")
 def verify_license(data: VerifyRequest, request: Request):
     client_ip = request.client.host
-    
     if not check_rate_limit(client_ip, max_requests=10, window_seconds=60):
         raise HTTPException(status_code=429, detail="Too Many Requests. Try later.")
-        
     if is_blacklisted(client_ip) or is_blacklisted(data.hwid):
         raise HTTPException(status_code=403, detail="Device or IP is permanently banned.")
         
@@ -148,16 +134,16 @@ def verify_license(data: VerifyRequest, request: Request):
         conn.close()
         raise HTTPException(status_code=404, detail="Invalid License Key.")
         
-    status = lic["status"]
+    status_val = lic["status"]
     stored_hwid = lic["hwid"]
     duration_hours = lic["duration_hours"]
     now = datetime.utcnow()
     
-    if status == "banned":
+    if status_val == "banned":
         conn.close()
         raise HTTPException(status_code=403, detail="Key has been banned.")
         
-    if status == "unused":
+    if status_val == "unused":
         expiry_time = now + timedelta(hours=duration_hours)
         act_str = now.strftime("%Y-%m-%d %H:%M:%S")
         exp_str = expiry_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -183,7 +169,6 @@ def verify_license(data: VerifyRequest, request: Request):
     conn.close()
     return {"status": "success", "message": "License valid", "expiry": lic["expiry_at"]}
 
-# ----------------- UI & DASHBOARD TEMPLATE -----------------
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
     return """
@@ -193,22 +178,21 @@ def login_page():
         <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Login - License Control</title>
         <style>
-            * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+            * { box-sizing: border-box; font-family: sans-serif; margin: 0; padding: 0; }
             body { background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; }
-            .card { background: #1e293b; padding: 32px; border-radius: 12px; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+            .card { background: #1e293b; padding: 32px; border-radius: 12px; width: 90%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
             h2 { color: #10b981; margin-bottom: 20px; text-align: center; }
             input { width: 100%; padding: 12px; margin-bottom: 16px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #fff; }
             button { width: 100%; padding: 12px; background: #10b981; border: none; border-radius: 6px; color: #0f172a; font-weight: bold; cursor: pointer; }
-            button:hover { background: #059669; }
         </style>
     </head>
     <body>
         <div class="card">
-            <h2>System Login</h2>
+            <h2>⚡ Control Panel</h2>
             <form action="/auth/login" method="post">
                 <input type="text" name="username" placeholder="Username" required>
                 <input type="password" name="password" placeholder="Password" required>
-                <button type="submit">Secure Login</button>
+                <button type="submit">Login</button>
             </form>
         </div>
     </body>
@@ -248,7 +232,6 @@ def dashboard(user: dict = Depends(get_current_user)):
     conn = get_db()
     cursor = conn.cursor()
     
-    # Stats logic based on role
     if user["role"] in ["super_owner", "owner"]:
         cursor.execute("SELECT COUNT(*) FROM licenses")
         total_keys = cursor.fetchone()[0]
@@ -262,8 +245,6 @@ def dashboard(user: dict = Depends(get_current_user)):
         keys = cursor.fetchall()
         cursor.execute("SELECT * FROM users ORDER BY id DESC")
         all_users = cursor.fetchall()
-        cursor.execute("SELECT * FROM blacklist")
-        blacklists = cursor.fetchall()
     else:
         cursor.execute("SELECT COUNT(*) FROM licenses WHERE created_by = ?", (user["username"],))
         total_keys = cursor.fetchone()[0]
@@ -275,11 +256,9 @@ def dashboard(user: dict = Depends(get_current_user)):
         cursor.execute("SELECT * FROM licenses WHERE created_by = ? ORDER BY created_at DESC", (user["username"],))
         keys = cursor.fetchall()
         all_users = []
-        blacklists = []
         
     conn.close()
     
-    # Render Tables
     keys_rows = "".join(f"""
         <tr>
             <td>{k['key']}</td>
@@ -303,7 +282,7 @@ def dashboard(user: dict = Depends(get_current_user)):
             <td>{u['status']}</td>
             <td>{u['created_by']}</td>
             <td>
-                {f"<a href='/user/demote/{u['id']}' style='color:#f59e0b; margin-right:8px;'>Demote/Ban</a><a href='/user/delete/{u['id']}' style='color:#ef4444;'>Delete</a>" if user['role'] == 'super_owner' and u['role'] != 'super_owner' else '-'}
+                {f"<a href='/user/demote/{u['id']}' style='color:#f59e0b; margin-right:8px;'>Ban</a><a href='/user/delete/{u['id']}' style='color:#ef4444;'>Delete</a>" if user['role'] == 'super_owner' and u['role'] != 'super_owner' else '-'}
             </td>
         </tr>
     """ for u in all_users) if user["role"] in ["super_owner", "owner"] else ""
@@ -313,34 +292,34 @@ def dashboard(user: dict = Depends(get_current_user)):
     <html>
     <head>
         <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Dashboard - Control Panel</title>
+        <title>Dashboard</title>
         <style>
-            * {{ box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; }}
-            body {{ background: #0b0f19; color: #f1f5f9; padding: 20px; }}
-            .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid #1e293b; padding-bottom: 16px; }}
-            .brand {{ font-size: 22px; font-weight: bold; color: #10b981; letter-spacing: 1px; }}
-            .user-tag {{ background: #1e293b; padding: 8px 16px; border-radius: 20px; font-size: 14px; }}
-            .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }}
-            .stat-card {{ background: #131d2e; border: 1px solid #1e293b; padding: 20px; border-radius: 10px; }}
-            .stat-title {{ color: #94a3b8; font-size: 13px; margin-bottom: 8px; }}
-            .stat-val {{ font-size: 24px; font-weight: bold; color: #38bdf8; }}
-            .box {{ background: #131d2e; border: 1px solid #1e293b; border-radius: 10px; padding: 20px; margin-bottom: 24px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
-            th, td {{ padding: 12px; border-bottom: 1px solid #1e293b; font-size: 13px; text-align: left; }}
+            * {{ box-sizing: border-box; font-family: sans-serif; margin: 0; padding: 0; }}
+            body {{ background: #0b0f19; color: #f1f5f9; padding: 15px; }}
+            .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 12px; }}
+            .brand {{ font-size: 18px; font-weight: bold; color: #10b981; }}
+            .user-tag {{ background: #1e293b; padding: 6px 12px; border-radius: 20px; font-size: 13px; }}
+            .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }}
+            .stat-card {{ background: #131d2e; border: 1px solid #1e293b; padding: 16px; border-radius: 8px; }}
+            .stat-title {{ color: #94a3b8; font-size: 12px; margin-bottom: 4px; }}
+            .stat-val {{ font-size: 20px; font-weight: bold; color: #38bdf8; }}
+            .box {{ background: #131d2e; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+            th, td {{ padding: 10px; border-bottom: 1px solid #1e293b; font-size: 12px; text-align: left; }}
             th {{ background: #0f172a; color: #94a3b8; }}
-            .badge {{ padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }}
+            .badge {{ padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }}
             .badge.active {{ background: rgba(16,185,129,0.2); color: #10b981; }}
             .badge.unused {{ background: rgba(245,158,11,0.2); color: #f59e0b; }}
             .badge.expired {{ background: rgba(239,68,68,0.2); color: #ef4444; }}
             .badge.role {{ background: rgba(56,189,248,0.2); color: #38bdf8; }}
-            input, select, button {{ padding: 10px; background: #0b0f19; border: 1px solid #334155; border-radius: 6px; color: #fff; margin-right: 8px; margin-bottom: 8px; }}
+            input, select, button {{ padding: 8px 10px; background: #0b0f19; border: 1px solid #334155; border-radius: 6px; color: #fff; margin-right: 6px; margin-bottom: 8px; }}
             button {{ background: #10b981; color: #0b0f19; font-weight: bold; cursor: pointer; border: none; }}
         </style>
     </head>
     <body>
         <div class="header">
-            <div class="brand">⚡ SYSTEM CONTROL PANEL</div>
-            <div class="user-tag">Logged: <b>{user['username']}</b> ({user['role'].upper()}) | Credits: <b>{user['credits']}</b> | <a href="/logout" style="color:#ef4444; text-decoration:none; margin-left:10px;">Logout</a></div>
+            <div class="brand">⚡ CONTROL PANEL</div>
+            <div class="user-tag"><b>{user['username']}</b> ({user['role'].upper()}) | Credits: <b>{user['credits']}</b> | <a href="/logout" style="color:#ef4444; text-decoration:none; margin-left:8px;">Logout</a></div>
         </div>
 
         <div class="stats">
@@ -350,10 +329,9 @@ def dashboard(user: dict = Depends(get_current_user)):
             {'<div class="stat-card"><div class="stat-title">Total Users</div><div class="stat-val">' + str(total_users) + '</div></div>' if user['role'] in ['super_owner', 'owner'] else ''}
         </div>
 
-        <!-- GENERATE KEY SECTION -->
         <div class="box">
             <h3>Generate License Key</h3>
-            <form action="/key/create" method="post" style="margin-top: 14px;">
+            <form action="/key/create" method="post" style="margin-top: 10px;">
                 <select name="duration">
                     <option value="1">1 Hour (0.1 Credit)</option>
                     <option value="2">2 Hours (0.2 Credit)</option>
@@ -369,16 +347,12 @@ def dashboard(user: dict = Depends(get_current_user)):
             </form>
         </div>
 
-        <!-- USER CREATION FOR SUPER OWNER / OWNER -->
-        {'<div class="box"><h3>Create User / Reseller</h3><form action="/user/create" method="post" style="margin-top:14px;"><input type="text" name="username" placeholder="Username" required><input type="password" name="password" placeholder="Password" required><select name="role"><option value="reseller">Reseller</option><option value="admin">Admin</option><option value="owner">Sub-Owner</option></select><input type="number" name="credits" placeholder="Credits" value="10" required><button type="submit">+ Create User</button></form></div>' if user['role'] in ['super_owner', 'owner'] else ''}
+        {'<div class="box"><h3>Create User / Reseller</h3><form action="/user/create" method="post" style="margin-top:10px;"><input type="text" name="username" placeholder="Username" required><input type="password" name="password" placeholder="Password" required><select name="role"><option value="reseller">Reseller</option><option value="admin">Admin</option><option value="owner">Sub-Owner</option></select><input type="number" name="credits" placeholder="Credits" value="10" required><button type="submit">+ Create User</button></form></div>' if user['role'] in ['super_owner', 'owner'] else ''}
 
-        <!-- DEVICE BLACKLIST SECTION -->
-        {'<div class="box"><h3>Device & IP Firewall</h3><form action="/blacklist/add" method="post" style="margin-top:14px;"><input type="text" name="identifier" placeholder="HWID or IP Address" required><select name="type"><option value="hwid">Device HWID</option><option value="ip">IP Address</option></select><button type="submit" style="background:#ef4444; color:#fff;">Ban / Block Device</button></form></div>' if user['role'] in ['super_owner', 'owner'] else ''}
+        {'<div class="box"><h3>Device & IP Firewall</h3><form action="/blacklist/add" method="post" style="margin-top:10px;"><input type="text" name="identifier" placeholder="HWID or IP Address" required><select name="type"><option value="hwid">Device HWID</option><option value="ip">IP Address</option></select><button type="submit" style="background:#ef4444; color:#fff;">Block Device</button></form></div>' if user['role'] in ['super_owner', 'owner'] else ''}
 
-        <!-- USERS TABLE -->
         {'<div class="box"><h3>Manage Users</h3><div style="overflow-x:auto;"><table><thead><tr><th>Username</th><th>Role</th><th>Credits</th><th>Status</th><th>Created By</th><th>Actions</th></tr></thead><tbody>' + user_rows + '</tbody></table></div></div>' if user['role'] in ['super_owner', 'owner'] else ''}
 
-        <!-- KEYS TABLE -->
         <div class="box">
             <h3>License Keys History</h3>
             <div style="overflow-x:auto;">
@@ -398,7 +372,6 @@ def dashboard(user: dict = Depends(get_current_user)):
     </html>
     """
 
-# ----------------- ACTION ENDPOINTS -----------------
 @app.post("/key/create")
 def create_key(duration: float = Form(...), user: dict = Depends(get_current_user)):
     if not user:
@@ -413,7 +386,6 @@ def create_key(duration: float = Form(...), user: dict = Depends(get_current_use
     key_str = "KEY-" + "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
     conn = get_db()
     cursor = conn.cursor()
-    
     cursor.execute("""
         INSERT INTO licenses (key, duration_hours, credit_cost, created_by, created_at)
         VALUES (?, ?, ?, ?, ?)
@@ -435,4 +407,28 @@ def reset_hwid(key: str, user: dict = Depends(get_current_user)):
     cursor.execute("UPDATE licenses SET hwid = NULL WHERE key = ?", (key,))
     conn.commit()
     conn.close()
-    return RedirectResponse(
+    return RedirectResponse(url="/dashboard")
+
+@app.get("/delete-key/{key}")
+def delete_key(key: str, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/login")
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM licenses WHERE key = ?", (key,))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/dashboard")
+
+@app.post("/user/create")
+def create_user(username: str = Form(...), password: str = Form(...), role: str = Form(...), credits: float = Form(...), user: dict = Depends(get_current_user)):
+    if not user or user["role"] not in ["super_owner", "owner"]:
+        return RedirectResponse(url="/login")
+    conn = get_db()
+    cursor = conn.cursor()
+    hashed = pwd_context.hash(password)
+    try:
+        cursor.execute("""
+            INSERT INTO users (username, password_hash, role, credits, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (username, hashed, role, credits, user["username"], datetime.utcnow(
