@@ -21,6 +21,7 @@ def init():
         c.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, role TEXT, credits REAL, status TEXT, created_by TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS licenses (key TEXT PRIMARY KEY, duration_hours REAL, credit_cost REAL, created_by TEXT, status TEXT, hwid TEXT, expiry_at TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS blacklist (identifier TEXT PRIMARY KEY)")
+        c.execute("CREATE TABLE IF NOT EXISTS referral_codes (code TEXT PRIMARY KEY, role TEXT, credits REAL, created_by TEXT, created_at TEXT)")
         if not c.execute("SELECT * FROM users WHERE username='owner'").fetchone():
             c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES ('owner', ?, 'super_owner', 999999, 'active', 'system')", (hash_pw("owner1234"),))
 init()
@@ -58,84 +59,130 @@ def verify_api(d: VData, req: Request):
         return {"status": "success", "expiry": lic["expiry_at"]}
 
 @app.get("/", response_class=RedirectResponse)
-def root(): return RedirectResponse("/dashboard")
+def root(): return RedirectResponse("/login")
 
+# --- MASTER OWNER PORTAL LOGIN ---
+@app.get("/owner", response_class=HTMLResponse)
+def owner_login_page():
+    return '''<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Owner Portal - Target Master</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
+body{background:#05060a;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;}
+.box{background:#0b0e18;border:1px solid #ff0055;padding:32px 24px;border-radius:20px;width:100%;max-width:340px;text-align:center;box-shadow:0 0 30px rgba(255,0,85,0.25);}
+h2{color:#ff0055;font-size:20px;letter-spacing:2px;margin-bottom:6px;}
+p{font-size:11px;color:#94a3b8;margin-bottom:20px;}
+input{width:100%;padding:12px;margin:8px 0;background:#05070e;border:1px solid #1f293d;color:#fff;border-radius:10px;font-size:13px;outline:none;}
+input:focus{border-color:#ff0055;}
+button{width:100%;padding:12px;background:#ff0055;color:#fff;border:none;border-radius:10px;font-weight:bold;cursor:pointer;margin-top:10px;font-size:13px;letter-spacing:1px;}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>👑 MASTER ACCESS</h2>
+<p>Authorized Super-Owners Only</p>
+<form action="/auth/login" method="post">
+<input name="username" placeholder="Master Username" required>
+<input name="password" type="password" placeholder="Master Password" required>
+<button type="submit">AUTHENTICATE MASTER</button>
+</form>
+</div>
+</body>
+</html>'''
+
+# --- RESELLER PORTAL LOGIN ---
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
     return '''<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Login - Target Panel</title>
+<title>Reseller Portal - Target Core</title>
 <style>
-body{background:#07090e;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;}
-.box{background:#0e131f;padding:26px;border-radius:14px;border:1px solid #1a233a;width:90%;max-width:320px;text-align:center;}
-input{width:100%;box-sizing:border-box;padding:12px;margin:8px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:8px;}
-button{width:100%;padding:12px;background:#00ff88;color:#07090e;border:none;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:8px;}
-a{color:#00ff88;text-decoration:none;font-size:13px;}
+*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
+body{background:#07090e;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;}
+.box{background:#0e131f;border:1px solid #1a233a;padding:32px 24px;border-radius:20px;width:100%;max-width:340px;text-align:center;box-shadow:0 15px 35px rgba(0,0,0,0.6);}
+h2{color:#00ff88;font-size:20px;letter-spacing:2px;margin-bottom:18px;}
+input{width:100%;padding:12px;margin:8px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:10px;font-size:13px;outline:none;}
+input:focus{border-color:#00ff88;}
+button{width:100%;padding:12px;background:#00ff88;color:#07090e;border:none;border-radius:10px;font-weight:bold;cursor:pointer;margin-top:10px;font-size:13px;letter-spacing:1px;}
+a{color:#00ff88;text-decoration:none;font-size:12px;font-weight:bold;}
 </style>
 </head>
 <body>
 <div class="box">
-<h2 style="color:#00ff88;margin-bottom:15px;">TARGET PANEL</h2>
+<h2>⚡ RESELLER LOGIN</h2>
 <form action="/auth/login" method="post">
 <input name="username" placeholder="Username" required>
 <input name="password" type="password" placeholder="Password" required>
-<button type="submit">LOGIN</button>
+<button type="submit">SIGN IN</button>
 </form>
-<div style="margin-top:14px;"><a href="/register">Register New Account</a></div>
+<div style="margin-top:16px;"><a href="/register">Have Invite Code? Register</a></div>
 </div>
 </body>
 </html>'''
 
+# --- REFERRAL SIGNUP ---
 @app.get("/register", response_class=HTMLResponse)
 def register_page():
     return '''<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Register - Target Panel</title>
+<title>Register - Target Core</title>
 <style>
-body{background:#07090e;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;}
-.box{background:#0e131f;padding:26px;border-radius:14px;border:1px solid #1a233a;width:90%;max-width:320px;text-align:center;}
-input{width:100%;box-sizing:border-box;padding:12px;margin:8px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:8px;}
-button{width:100%;padding:12px;background:#38bdf8;color:#07090e;border:none;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:8px;}
-a{color:#38bdf8;text-decoration:none;font-size:13px;}
+*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
+body{background:#07090e;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;}
+.box{background:#0e131f;border:1px solid rgba(56,189,248,0.3);padding:32px 24px;border-radius:20px;width:100%;max-width:340px;text-align:center;box-shadow:0 15px 35px rgba(0,0,0,0.6);}
+h2{color:#38bdf8;font-size:20px;letter-spacing:2px;margin-bottom:6px;}
+p{font-size:11px;color:#94a3b8;margin-bottom:18px;}
+input{width:100%;padding:12px;margin:8px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:10px;font-size:13px;outline:none;}
+input:focus{border-color:#38bdf8;}
+button{width:100%;padding:12px;background:#38bdf8;color:#07090e;border:none;border-radius:10px;font-weight:bold;cursor:pointer;margin-top:10px;font-size:13px;letter-spacing:1px;}
+a{color:#38bdf8;text-decoration:none;font-size:12px;font-weight:bold;}
 </style>
 </head>
 <body>
 <div class="box">
-<h2 style="color:#38bdf8;margin-bottom:6px;">REGISTER</h2>
-<p style="font-size:11px;color:#94a3b8;margin-bottom:12px;">Approval required from admin</p>
+<h2>🎟️ INVITE REGISTER</h2>
+<p>Valid 1-Time Referral Code Required</p>
 <form action="/auth/register" method="post">
-<input name="username" placeholder="Desired Username" required>
-<input name="password" type="password" placeholder="Password" required>
-<button type="submit">SUBMIT REQUEST</button>
+<input name="ref_code" placeholder="Referral Code (e.g. REF-XXXX)" required style="border-color:#38bdf8;">
+<input name="username" placeholder="Choose Username" required>
+<input name="password" type="password" placeholder="Choose Password" required>
+<button type="submit">CREATE RESELLER ACCOUNT</button>
 </form>
-<div style="margin-top:14px;"><a href="/login">Already registered? Login</a></div>
+<div style="margin-top:16px;"><a href="/login">Back to Login</a></div>
 </div>
 </body>
 </html>'''
 
 @app.post("/auth/register")
-def auth_register(username: str = Form(...), password: str = Form(...)):
+def auth_register(ref_code: str = Form(...), username: str = Form(...), password: str = Form(...)):
+    ref_code = ref_code.strip()
     with db() as c:
+        ref = c.execute("SELECT * FROM referral_codes WHERE code=?", (ref_code,)).fetchone()
+        if not ref:
+            return HTMLResponse("<script>alert('Invalid or Expired Referral Code!');location.href='/register';</script>")
         exist = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if exist:
             return HTMLResponse("<script>alert('Username already taken');location.href='/register';</script>")
-        c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES (?, ?, 'reseller', 0, 'pending', 'self_registered')", (username, hash_pw(password)))
-    return HTMLResponse("<script>alert('Submitted! Awaiting Admin Approval.');location.href='/login';</script>")
+        
+        c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES (?, ?, ?, ?, 'active', ?)", 
+                  (username, hash_pw(password), ref["role"], ref["credits"], f"ref_by_{ref['created_by']}"))
+        c.execute("DELETE FROM referral_codes WHERE code=?", (ref_code,))
+        
+    return HTMLResponse("<script>alert('Account Created! You can login now.');location.href='/login';</script>")
 
 @app.post("/auth/login")
 def auth_login(username: str = Form(...), password: str = Form(...)):
     with db() as c:
         u = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-    if not u or u["password_hash"] != hash_pw(password):
-        return HTMLResponse("<script>alert('Invalid Credentials');location.href='/login';</script>")
-    if u["status"] == "pending":
-        return HTMLResponse("<script>alert('Account Pending Approval by Admin.');location.href='/login';</script>")
-    if u["status"] == "banned":
-        return HTMLResponse("<script>alert('Account Suspended');location.href='/login';</script>")
+    if not u or u["password_hash"] != hash_pw(password) or u["status"] == "banned":
+        return HTMLResponse("<script>alert('Invalid Login Credentials');history.back();</script>")
         
     token = f"{u['username']}:{u['role']}"
     res = RedirectResponse("/dashboard", status_code=302)
@@ -151,70 +198,158 @@ def logout():
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(u: dict = Depends(get_user)):
     if not u: return RedirectResponse("/login")
+    is_master = u["role"] in ["super_owner", "owner"]
+    
     with db() as c:
-        if u["role"] in ["super_owner", "owner"]:
+        if is_master:
             keys = c.execute("SELECT * FROM licenses ORDER BY rowid DESC").fetchall()
-            active_users = c.execute("SELECT * FROM users WHERE status='active' AND username!='owner'").fetchall()
-            pending_users = c.execute("SELECT * FROM users WHERE status='pending'").fetchall()
+            active_users = c.execute("SELECT * FROM users WHERE username!='owner' ORDER BY id DESC").fetchall()
+            referrals = c.execute("SELECT * FROM referral_codes ORDER BY rowid DESC").fetchall()
         else:
             keys = c.execute("SELECT * FROM licenses WHERE created_by=? ORDER BY rowid DESC", (u["username"],)).fetchall()
             active_users = []
-            pending_users = []
+            referrals = []
             
     tot_keys = len(keys)
     used_keys = sum(1 for k in keys if k["status"] == "active")
     unused_keys = sum(1 for k in keys if k["status"] == "unused")
     tot_resellers = len(active_users)
 
-    k_tr = "".join([f"<tr><td style='color:#00ff88;'>{k['key']}</td><td>{k['duration_hours']}h</td><td>{k['status']}</td><td>{k['hwid'] or '-'}</td><td>{k['expiry_at'] or '-'}</td><td><a href='/hwid/{k['key']}' style='color:#38bdf8;'>Reset</a> | <a href='/kdel/{k['key']}' style='color:#ef4444;'>Del</a></td></tr>" for k in keys])
-    p_tr = "".join([f"<tr><td>{p['username']}</td><td style='color:#f59e0b;'>PENDING</td><td><a href='/user/approve/{p['id']}' style='color:#00ff88;'>Approve (+10CR)</a> | <a href='/udel/{p['id']}' style='color:#ef4444;'>Reject</a></td></tr>" for p in pending_users]) if pending_users else ""
-    u_tr = "".join([f"<tr><td>{x['username']}</td><td>{x['role']}</td><td style='color:#00ff88;'>{x['credits']}</td><td>{x['status']}</td><td><a href='/udel/{x['id']}' style='color:#ef4444;'>Del</a></td></tr>" for x in active_users]) if active_users else ""
-
-    p_section = f"<div class='card'><h3>⏳ PENDING REGISTRATIONS</h3><div class='tbl'><table><tr><th>User</th><th>Status</th><th>Action</th></tr>{p_tr}</table></div></div>" if pending_users else ""
-    u_section = f"<div class='card'><h3>👥 RESELLERS</h3><div class='tbl'><table><tr><th>User</th><th>Role</th><th>Credits</th><th>Status</th><th>Action</th></tr>{u_tr}</table></div></div>" if active_users else ""
+    k_tr = "".join([f"""<tr>
+        <td style='color:#00f0ff;font-weight:bold;font-family:monospace;'>{k['key']}</td>
+        <td>{k['duration_hours']}h</td>
+        <td><span class='badge {k['status']}'>{k['status'].upper()}</span></td>
+        <td style='color:#94a3b8;font-family:monospace;font-size:11px;'>{k['hwid'] or '-'}</td>
+        <td style='color:#94a3b8;font-size:11px;'>{k['expiry_at'] or '-'}</td>
+        <td>
+            <button class='btn-copy' onclick="copyKey('{k['key']}', this)">Copy</button>
+            <a href='/hwid/{k['key']}' style='color:#38bdf8;font-size:11px;text-decoration:none;margin-left:6px;'>Reset</a>
+            <a href='/kdel/{k['key']}' style='color:#ef4444;font-size:11px;text-decoration:none;margin-left:6px;'>Del</a>
+        </td>
+    </tr>""" for k in keys])
     
-    admin_boxes = f"""<div class='card'><h3>👤 CREATE RESELLER</h3><form action='/user/create' method='post'><input name='username' placeholder='Username' required><input name='password' type='password' placeholder='Password' required><select name='role'><option value='reseller'>Reseller</option><option value='admin'>Admin</option></select><input name='credits' type='number' value='50'><button type='submit' style='background:#38bdf8;'>Save User</button></form></div>
-<div class='card'><h3>🚫 BAN HWID/IP</h3><form action='/block/add' method='post'><input name='ident' placeholder='HWID or IP' required><button type='submit' style='background:#ef4444;color:#fff;'>Block Target</button></form></div>""" if u["role"] in ["super_owner", "owner"] else ""
+    admin_boxes = ""
+    ref_section = ""
+    u_section = ""
+    grid_html = ""
+
+    if is_master:
+        u_tr = "".join([f"<tr><td>{x['username']}</td><td>{x['role']}</td><td style='color:#00ff88;font-weight:bold;'>{x['credits']}</td><td>{x['status']}</td><td>{x['created_by']}</td><td><a href='/udel/{x['id']}' style='color:#ef4444;text-decoration:none;'>Del</a></td></tr>" for x in active_users]) if active_users else ""
+        r_tr = "".join([f"<tr><td style='color:#38bdf8;font-weight:bold;font-family:monospace;'>{r['code']}</td><td>{r['role']}</td><td>{r['credits']}</td><td>{r['created_by']}</td><td><button class='btn-copy' onclick=\"copyKey('{r['code']}', this)\">Copy</button> <a href='/ref/del/{r['code']}' style='color:#ef4444;text-decoration:none;margin-left:6px;'>Revoke</a></td></tr>" for r in referrals]) if referrals else ""
+
+        grid_html = f"""<div class="grid">
+        <div class="stat"><span>TOTAL KEYS</span><b style="color:#00f0ff;">{tot_keys}</b></div>
+        <div class="stat"><span>ACTIVE KEYS</span><b style="color:#00ff88;">{used_keys}</b></div>
+        <div class="stat"><span>UNUSED KEYS</span><b style="color:#ffb703;">{unused_keys}</b></div>
+        <div class="stat"><span>ALL USERS</span><b style="color:#a855f7;">{tot_resellers}</b></div>
+        </div>"""
+
+        admin_boxes = """<div class='card' style='border-color:rgba(56,189,248,0.3);'>
+        <h3 style='color:#38bdf8;'>🎟️ CREATE 1-TIME REFERRAL CODE</h3>
+        <form action='/ref/create' method='post'>
+        <select name='role'><option value='reseller'>For Reseller</option><option value='admin'>For Admin</option></select>
+        <input name='credits' type='number' placeholder='Starting Credits' value='20'>
+        <button type='submit' style='background:#38bdf8;color:#07090e;'>+ Generate Invite Code</button>
+        </form></div>
+        <div class='card' style='border-color:rgba(239,68,68,0.3);'><h3 style='color:#ef4444;'>🚫 FIREWALL IP/HWID BAN</h3><form action='/block/add' method='post'><input name='ident' placeholder='Target HWID or IP' required><button type='submit' style='background:#ef4444;color:#fff;'>Block Permanently</button></form></div>"""
+
+        if referrals:
+            ref_section = f"""<div class='card' style='border-color:rgba(56,189,248,0.3);'><h3 style='color:#38bdf8;'>🎟️ ACTIVE 1-TIME REFERRAL CODES</h3><div class='tbl'><table><tr><th>Code</th><th>Role</th><th>Credits</th><th>Created By</th><th>Action</th></tr>{r_tr}</table></div></div>"""
+        if active_users:
+            u_section = f"<div class='card'><h3>👥 ALL RESELLERS / USERS</h3><div class='tbl'><table><tr><th>User</th><th>Role</th><th>Credits</th><th>Status</th><th>Source</th><th>Action</th></tr>{u_tr}</table></div></div>"
+    else:
+        grid_html = f"""<div class="grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="stat"><span>MY KEYS</span><b style="color:#00f0ff;">{tot_keys}</b></div>
+        <div class="stat"><span>ACTIVE</span><b style="color:#00ff88;">{used_keys}</b></div>
+        <div class="stat"><span>UNUSED</span><b style="color:#ffb703;">{unused_keys}</b></div>
+        </div>"""
 
     return f'''<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Dashboard - Target Core</title>
 <style>
-body{{background:#07090e;color:#fff;margin:0;padding:12px;font-family:sans-serif;}}
-.header{{display:flex;justify-content:space-between;align-items:center;background:#0e131f;padding:12px;border-radius:10px;border:1px solid #1a233a;margin-bottom:12px;}}
+*{{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;-webkit-tap-highlight-color:transparent;}}
+body{{background:#07090e;color:#f1f5f9;margin:0;padding:12px 14px 40px 14px;}}
+
+.header{{display:flex;justify-content:space-between;align-items:center;background:#0e131f;padding:14px 16px;border-radius:14px;border:1px solid #1a233a;margin-bottom:12px;}}
+.brand{{font-size:18px;font-weight:bold;color:#00ff88;letter-spacing:1px;}}
+.user-tag{{display:flex;align-items:center;gap:10px;font-size:12px;}}
+.credits-pill{{background:rgba(0, 255, 136, 0.12);border:1px solid rgba(0, 255, 136, 0.3);color:#00ff88;padding:4px 10px;border-radius:10px;font-weight:bold;}}
+
 .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;}}
-.stat{{background:#0e131f;padding:14px;border-radius:10px;border:1px solid #1a233a;text-align:center;}}
-.stat b{{font-size:22px;color:#00ff88;display:block;}}
-.stat span{{font-size:11px;color:#94a3b8;}}
-.card{{background:#0e131f;padding:14px;border-radius:10px;border:1px solid #1a233a;margin-bottom:12px;}}
-.card h3{{margin:0 0 10px 0;font-size:14px;color:#38bdf8;}}
-input,select{{width:100%;box-sizing:border-box;padding:10px;margin:5px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:6px;font-size:12px;}}
-button{{width:100%;padding:10px;border:none;border-radius:6px;font-weight:bold;cursor:pointer;margin-top:5px;font-size:12px;}}
-.tbl{{overflow-x:auto;}}
-table{{width:100%;border-collapse:collapse;min-width:400px;font-size:12px;}}
-th{{background:#070a12;color:#94a3b8;padding:8px;text-align:left;}}
-td{{padding:8px;border-bottom:1px solid #1f293d;}}
-a{{text-decoration:none;}}
+.stat{{background:#0e131f;border:1px solid #1a233a;padding:14px 10px;border-radius:12px;text-align:center;}}
+.stat b{{font-size:22px;display:block;margin-top:4px;}}
+.stat span{{font-size:10px;color:#94a3b8;font-weight:bold;letter-spacing:0.5px;}}
+
+.card{{background:#0e131f;padding:16px;border-radius:14px;border:1px solid #1a233a;margin-bottom:12px;}}
+.card-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}}
+.card h3{{margin:0;font-size:14px;color:#f8fafc;font-weight:bold;}}
+
+.menu-container{{position:relative;display:inline-block;}}
+.dots-btn{{background:rgba(255,255,255,0.05);border:1px solid #1f293d;color:#fff;border-radius:6px;padding:4px 10px;font-size:14px;cursor:pointer;}}
+.dropdown-content{{display:none;position:absolute;right:0;top:28px;background:#070a12;border:1px solid #1f293d;border-radius:8px;min-width:120px;box-shadow:0 10px 25px rgba(0,0,0,0.8);z-index:99;}}
+.dropdown-content a{{color:#f8fafc;padding:8px 12px;text-decoration:none;font-size:11px;display:block;}}
+.dropdown-content a:hover{{background:#1f293d;color:#00ff88;}}
+.show{{display:block;}}
+
+.radio-group{{display:flex;gap:15px;margin-bottom:10px;font-size:12px;}}
+.radio-group label{{cursor:pointer;display:flex;align-items:center;gap:5px;}}
+
+input,select{{width:100%;padding:11px;margin:5px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:8px;font-size:12px;outline:none;}}
+input:focus,select:focus{{border-color:#00ff88;}}
+button{{width:100%;padding:11px;border:none;border-radius:8px;font-weight:bold;font-size:12px;cursor:pointer;margin-top:6px;}}
+
+.tbl{{overflow-x:auto;width:100%;margin-top:8px;}}
+table{{width:100%;border-collapse:collapse;min-width:440px;font-size:12px;}}
+th{{background:#070a12;color:#94a3b8;padding:8px;text-align:left;font-size:10px;text-transform:uppercase;}}
+td{{padding:8px;border-bottom:1px solid #161f33;}}
+
+.btn-copy{{display:inline-block;padding:4px 8px;background:rgba(0,255,136,0.15);border:1px solid #00ff88;color:#00ff88;border-radius:5px;font-size:10px;font-weight:bold;cursor:pointer;}}
+.btn-copy.copied{{background:#00ff88;color:#07090e;}}
+
+.badge{{padding:2px 6px;border-radius:4px;font-size:9px;font-weight:bold;}}
+.badge.active{{background:rgba(0,255,136,0.15);color:#00ff88;}}
+.badge.unused{{background:rgba(255,183,3,0.15);color:#ffb703;}}
+.badge.expired{{background:rgba(239,68,68,0.15);color:#ef4444;}}
 </style>
 </head>
 <body>
+
 <div class="header">
-<div><b>{u['username'].upper()}</b> ({u['role']})</div>
-<div><span style="color:#00ff88;font-weight:bold;">⚡ {u['credits']} CR</span> | <a href="/logout" style="color:#ef4444;font-weight:bold;">Logout</a></div>
+<div class="brand">⚡ TARGET CONTROL</div>
+<div class="user-tag">
+<span class="credits-pill">⚡ {u['credits']} CR</span>
+<a href="/logout" style="color:#ef4444;font-weight:bold;text-decoration:none;font-size:12px;">Logout</a>
+</div>
 </div>
 
-<div class="grid">
-<div class="stat"><b>{tot_keys}</b><span>Total Keys</span></div>
-<div class="stat"><b style="color:#38bdf8;">{used_keys}</b><span>Used Keys</span></div>
-<div class="stat"><b style="color:#f59e0b;">{unused_keys}</b><span>Unused Keys</span></div>
-<div class="stat"><b style="color:#a855f7;">{tot_resellers}</b><span>Resellers</span></div>
+{grid_html}
+
+<!-- Key Generator Card with Random/Custom Option & 3-Dots Menu -->
+<div class="card" style="border-color:rgba(0,255,136,0.3);">
+<div class="card-header">
+<h3 style="color:#00ff88;">⚡ GENERATE LICENSE</h3>
+<div class="menu-container">
+<button class="dots-btn" onclick="toggleMenu()">⋮</button>
+<div id="dotsDropdown" class="dropdown-content">
+<a href="javascript:location.reload()">🔄 Refresh</a>
+<a href="javascript:alert('Pricing: 1h=0.1, 12h=1, 1d=2, 30d=30 Credits')">💡 Rate List</a>
+</div>
+</div>
 </div>
 
-<div class="card">
-<h3>⚡ GENERATE LICENSE</h3>
 <form action="/key/create" method="post">
+<div class="radio-group">
+<label><input type="radio" name="key_type" value="random" checked onclick="toggleCustomBox(false)"> Random Key</label>
+<label><input type="radio" name="key_type" value="custom" onclick="toggleCustomBox(true)"> Custom Key</label>
+</div>
+
+<div id="customKeyBox" style="display:none;">
+<input name="custom_key_name" placeholder="Enter Custom Key (e.g. VIP-ROHAN)">
+</div>
+
 <select name="duration">
 <option value="1">1 Hour (0.1 Credit)</option>
 <option value="2">2 Hours (0.2 Credit)</option>
@@ -226,16 +361,16 @@ a{{text-decoration:none;}}
 <option value="360">15 Days (18 Credits)</option>
 <option value="720">30 Days (30 Credits)</option>
 </select>
-<button type="submit" style="background:#00ff88;color:#07090e;">Create Key</button>
+<button type="submit" style="background:#00ff88;color:#07090e;">+ CREATE KEY</button>
 </form>
 </div>
 
 {admin_boxes}
-{p_section}
+{ref_section}
 {u_section}
 
 <div class="card">
-<h3>🔑 KEYS DIRECTORY</h3>
+<h3>🔑 LICENSE KEYS DIRECTORY</h3>
 <div class="tbl">
 <table>
 <tr><th>Key</th><th>Duration</th><th>Status</th><th>HWID</th><th>Expiry</th><th>Action</th></tr>
@@ -243,60 +378,7 @@ a{{text-decoration:none;}}
 </table>
 </div>
 </div>
-</body>
-</html>'''
 
-@app.get("/user/approve/{uid}")
-def approve_user(uid: int, u: dict = Depends(get_user)):
-    if not u or u["role"] not in ["super_owner", "owner"]: return RedirectResponse("/login")
-    with db() as c:
-        c.execute("UPDATE users SET status='active', credits=10 WHERE id=?", (uid,))
-    return RedirectResponse("/dashboard")
-
-@app.post("/key/create")
-def add_key(duration: float = Form(...), u: dict = Depends(get_user)):
-    if not u: return RedirectResponse("/login")
-    costs = {1:0.1, 2:0.2, 5:0.5, 6:0.6, 12:1.0, 24:2.0, 168:10.0, 360:18.0, 720:30.0}
-    c_cost = costs.get(int(duration), 1.0)
-    if u["role"] != "super_owner" and u["credits"] < c_cost:
-        return HTMLResponse("<script>alert('Low Credits');location.href='/dashboard';</script>")
-    k_code = "TARGET-" + "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
-    with db() as c:
-        c.execute("INSERT INTO licenses VALUES (?, ?, ?, ?, 'unused', NULL, NULL)", (k_code, duration, c_cost, u["username"]))
-        if u["role"] != "super_owner": c.execute("UPDATE users SET credits=credits-? WHERE id=?", (c_cost, u["id"]))
-    return RedirectResponse("/dashboard", status_code=302)
-
-@app.get("/hwid/{k}")
-def r_hwid(k: str, u: dict = Depends(get_user)):
-    if not u: return RedirectResponse("/login")
-    with db() as c: c.execute("UPDATE licenses SET hwid=NULL WHERE key=?", (k,))
-    return RedirectResponse("/dashboard")
-
-@app.get("/kdel/{k}")
-def k_del(k: str, u: dict = Depends(get_user)):
-    if not u: return RedirectResponse("/login")
-    with db() as c: c.execute("DELETE FROM licenses WHERE key=?", (k,))
-    return RedirectResponse("/dashboard")
-
-@app.post("/user/create")
-def u_create(username: str = Form(...), password: str = Form(...), role: str = Form("reseller"), credits: float = Form(0), u: dict = Depends(get_user)):
-    if not u or u["role"] not in ["super_owner", "owner"]: return RedirectResponse("/login")
-    with db() as c:
-        try: c.execute("INSERT INTO users (username, password_hash, role, credits, status, created_by) VALUES (?, ?, ?, ?, 'active', ?)", (username, hash_pw(password), role, credits, u["username"]))
-        except: pass
-    return RedirectResponse("/dashboard", status_code=302)
-
-@app.get("/udel/{uid}")
-def u_del(uid: int, u: dict = Depends(get_user)):
-    if not u or u["role"] != "super_owner": return RedirectResponse("/login")
-    with db() as c: c.execute("DELETE FROM users WHERE id=?", (uid,))
-    return RedirectResponse("/dashboard")
-
-@app.post("/block/add")
-def b_add(ident: str = Form(...), u: dict = Depends(get_user)):
-    if not u or u["role"] not in ["super_owner", "owner"]: return RedirectResponse("/login")
-    with db() as c:
-        try: c.execute("INSERT INTO blacklist VALUES (?)", (ident,))
-        except: pass
-    return RedirectResponse("/dashboard", status_code=302)
-    
+<script>
+function toggleMenu() {{
+  document.getElementByI
