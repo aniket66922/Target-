@@ -1,4 +1,4 @@
-import sqlite3, secrets, string, hashlib, time
+import sqlite3, secrets, string, hashlib, time, base64
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Request, Form, Depends, Cookie
@@ -32,11 +32,8 @@ def get_user(token: str = Cookie(None)):
         parts = token.split(":")
         if len(parts) != 3: return None
         user, role, login_time = parts
-        
-        # 10 Minutes (600 Seconds) Session Expiry Check
         if time.time() - float(login_time) > 600:
             return None
-
         with db() as c:
             u = c.execute("SELECT * FROM users WHERE username=? AND role=?", (user, role)).fetchone()
             return dict(u) if u and u["status"] == "active" else None
@@ -68,98 +65,26 @@ def verify_api(d: VData, req: Request):
 @app.get("/", response_class=RedirectResponse)
 def root(): return RedirectResponse("/login")
 
+# HTML Templates encoded cleanly
+HTML_OWNER = base64.b64decode("PCFET0NUWVBFIGh0bWw+PGh0bWw+PGhlYWQ+PG1ldGEgbmFtZT0ndmlld3BvcnQnIGNvbnRlbnQ9J3dpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xLjAnPjx0aXRsZT5Pd25lciBQb3J0YWw8L3RpdGxlPjxzdHlsZT4qe2JveC1zaXppbmc6Ym9yZGVyLWJveDttYXJnaW46MDtwYWRkaW5nOjA7Zm9udC1mYW1pbHk6c2Fucy1zZXJpZjt9Ym9keXtiYWNrZ3JvdW5kOiMwNTA2MGE7Y29sb3I6I2ZmZjtkaXNwbGF5OmZsZXg7anVzdGlmeS1jb250ZW50OmNlbnRlcjthbGlnbi1pdGVtczpjZW50ZXI7bWluLWhlaWdodDoxMDB2aDtwYWRkaW5nOjIwcHg7fS5ib3h7YmFja2dyb3VuZDojMGIwZTE4O2JvcmRlcjoxcHggc29saWQgI2ZmMDA1NTtwYWRkaW5nOjMycHggMjRweDtib3JkZXItcmFkaXVzOjIwcHg7d2lkdGg6MTAwJTttYXgtd2lkdGg6MzQwcHg7dGV4dC1hbGlnbjpjZW50ZXI7Ym94LXNoYWRvdzowIDAgMzBweCByZ2JhKDI1NSwwLDg1LDAuMjUpO31oMntjb2xvcjojZmYwMDU1O2ZvbnQtc2l6ZToyMHB4O2xldHRlci1zcGFjaW5nOjJweDttYXJnaW4tYm90dG9tOjZweDt9cHtmb250LXNpemU6MTFweDtjb2xvcjojOTRhM2I4O21hcmdpbi1ib3R0b206MjBweDt9aW5wdXR7d2lkdGg6MTAwJTtwYWRkaW5nOjEycHg7bWFyZ2luOjhweCAwO2JhY2tncm91bmQ6IzA1MDcwZTtib3JkZXI6MXB4IHNvbGlkICMxZjI5M2Q7Y29sb3I6I2ZmZjtib3JkZXItcmFkaXVzOjEwcHg7Zm9udC1zaXplOjEzcHg7b3V0bGluZTpub25lO31idXR0b257d2lkdGg6MTAwJTtwYWRkaW5nOjEycHg7YmFja2dyb3VuZDojZmYwMDU1O2NvbG9yOiNmZmY7Ym9yZGVyOm5vbmU7Ym9kZXItcmFkaXVzOjEwcHg7Zm9udC13ZWlnaHQ6Ym9sZDtjdXJzb3I6cG9pbnRlcjttYXJnaW4tdG9wOjEwcHg7Zm9udC1zaXplOjEzcHg7fTwvc3R5bGU+PC9oZWFkPjxib2R5PjxkaXYgY2xhc3M9J2JveCc+PGgyPuKAnSBNQVNURVIgQUNDRVNTPC9oMj48cD5BdXRob3JpemVkIFN1cGVyLU93bmVycyBPbmx5PC9wPjxmb3JtIGFjdGlvbj0nL2F1dGgvbG9naW4nIG1ldGhvZD0ncG9zdCc+PGlucHV0IG5hbWU9J3VzZXJuYW1lJyBwbGFjZWhvbGRlcj0nTWFzdGVyIFVzZXJuYW1lJyByZXF1aXJlZD48aW5wdXQgbmFtZT0ncGFzc3dvcmQnIHR5cGU9J3Bhc3N3b3JkJyBwbGFjZWhvbGRlcj0nTWFzdGVyIFBhc3N3b3JkJyByZXF1aXJlZD48YnV0dG9uIHR5cGU9J3N1Ym1pdCc+QVVUSEVOVElDQVRFPC9idXR0b24+PC9mb3JtPjwvZGl2PjwvYm9keT48L2h0bWw+").decode('utf-8')
+
+HTML_LOGIN = base64.b64decode("PCFET0NUWVBFIGh0bWw+PGh0bWw+PGhlYWQ+PG1ldGEgbmFtZT0ndmlld3BvcnQnIGNvbnRlbnQ9J3dpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xLjAnPjx0aXRsZT5SZXNlbGxlciBQb3J0YWw8L3RpdGxlPjxzdHlsZT4qe2JveC1zaXppbmc6Ym9yZGVyLWJveDttYXJnaW46MDtwYWRkaW5nOjA7Zm9udC1mYW1pbHk6c2Fucy1zZXJpZjt9Ym9keXtiYWNrZ3JvdW5kOiMwNzA5MGU7Y29sb3I6I2ZmZjtkaXNwbGF5OmZsZXg7anVzdGlmeS1jb250ZW50OmNlbnRlcjthbGlnbi1pdGVtczpjZW50ZXI7bWluLWhlaWdodDoxMDB2aDtwYWRkaW5nOjIwcHg7fS5ib3h7YmFja2dyb3VuZDojMGUxMzFmO2JvcmRlcjoxcHggc29saWQgIzFhMjMzYTtwYWRkaW5nOjMycHggMjRweDtib3JkZXItcmFkaXVzOjIwcHg7d2lkdGg6MTAwJTttYXgtd2lkdGg6MzQwcHg7dGV4dC1hbGlnbjpjZW50ZXI7fWgye2NvbG9yOiMwMGZmODg7Zm9udC1zaXplOjIwcHg7bGV0dGVyLXNwYWNpbmc6MnB4O21hcmdpbi1ib3R0b206MThweDt9aW5wdXR7d2lkdGg6MTAwJTtwYWRkaW5nOjEycHg7bWFyZ2luOjhweCAwO2JhY2tncm91bmQ6IzA3MGExMjtib3JkZXI6MXB4IHNvbGlkICMxZjI5M2Q7Y29sb3I6I2ZmZjtib3JkZXItcmFkaXVzOjEwcHg7Zm9udC1zaXplOjEzcHg7b3V0bGluZTpub25lO31idXR0b257d2lkdGg6MTAwJTtwYWRkaW5nOjEycHg7YmFja2dyb3VuZDojMDBmZjg4O2NvbG9yOiMwNzA5MGU7Ym9yZGVyOm5vbmU7Ym9yZGVyLXJhZGl1czoxMHB4O2ZvbnQtd2VpZ2h0OmJvbGQ7Y3Vyc29yOnBvaW50ZXI7bWFyZ2luLXRvcDoxMHB4O2ZvbnQtc2l6ZToxM3B4O31he2NvbG9yOiMwMGZmODg7dGV4dC1kZWNvcmF0aW9uOm5vbmU7Zm9udC1zaXplOjEycHg7Zm9udC13ZWlnaHQ6Ym9sZDt9PC9zdHlsZT48L2hlYWQ+PGJvZHk+PGRpdiBjbGFzcz0nYm94Jz48aDI+4pqhIFJFU0VMTEVSIExPR0lOPC9oMj48Zm9ybSBhY3Rpb249Jy9hdXRoL2xvZ2luJyBtZXRob2Q9J3Bvc3QnPjxpbnB1dCBuYW1lPSd1c2VybmFtZScgcGxhY2Vob2xkZXI9J1VzZXJuYW1lJyByZXF1aXJlZD48aW5wdXQgbmFtZT0ncGFzc3dvcmQnIHR5cGU9J3Bhc3N3b3JkJyBwbGFjZWhvbGRlcj0nUGFzc3dvcmQnIHJlcXVpcmVkPjxidXR0b24gdHlwZT0nc3VibWl0Jz5TSUdOIElOPC9idXR0b24+PC9mb3JtPjxkaXYgc3R5bGU9J21hcmdpbi10b3A6MTZweDsnPjxhIGhyZWY9Jy9yZWdpc3Rlcic+SGF2ZSBJbnZpdGUgQ29kZT8gUmVnaXN0ZXI8L2E+PC9kaXY+PC9kaXY+PC9ib2R5PjwvaHRtbD4=").decode('utf-8')
+
+HTML_REG = base64.b64decode("PCFET0NUWVBFIGh0bWw+PGh0bWw+PGhlYWQ+PG1ldGEgbmFtZT0ndmlld3BvcnQnIGNvbnRlbnQ9J3dpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xLjAnPjx0aXRsZT5SZWdpc3RlciAtIFRhcmdldCBDb3JlPC90aXRsZT48c3R5bGU+Kntib3gtc2l6aW5nOmJvcmRlci1ib3g7bWFyZ2luOjA7cGFkZGluZzowO2ZvbnQtZmFtaWx5OnNhbnMtc2VyaWY7fWJvZHl7YmFja2dyb3VuZDojMDcwOTBlO2NvbG9yOiNmZmY7ZGlzcGxheTpmbGV4O2p1c3RpZnktY29udGVudDpjZW50ZXI7YWxpZ24taXRlbXM6Y2VudGVyO21pbi1oZWlnaHQ6MTAwdmg7cGFkZGluZzoyMHB4O30uYm94e2JhY2tncm91bmQ6IzBlMTMxZjtib3JkZXI6MXB4IHNvbGlkIHJnYmEoNTYsMTg5LDI0OCwwLjMpO3BhZGRpbmc6MzJweCAyNHB4O2JvcmRlci1yYWRpdXM6MjBweDt3aWR0aDoxMDAlO21heC13aWR0aDozNDBweDt0ZXh0LWFsaWduOmNlbnRlcjt9aDJ7Y29sb3I6IzM4YmRmODtmb250LXNpemU6MjBweDtsZXR0ZXItc3BhY2luZzoycHg7bWFyZ2luLWJvdHRvbTo2cHg7fXB7Zm9udC1zaXplOjExcHg7Y29sb3I6Izk0YTNjODttYXJnaW4tYm90dG9tOjE4cHg7fWlucHV0e3dpZHRoOjEwMCU7cGFkZGluZzoxMnB4O21hcmdpbjo4cHggMDtiYWNrZ3JvdW5kOiMwNzBhMTI7Ym9yZGVyOjFweCBzb2xpZCAjMWYyOTNKO2NvbG9yOiNmZmY7Ym9yZGVyLXJhZGl1czoxMHB4O2ZvbnQtc2l6ZToxM3B4O291dGxpbmU6bm9uZTt9YnV0dG9ue3dpZHRoOjEwMCU7cGFkZGluZzoxMnB4O2JhY2tncm91bmQ6IzM4YmRmODtjb2xvcjojMDcwOTBlO2JvcmRlcjpub25lO2JvcmRlci1yYWRpdXM6MTBweDtmb250LXdlaWdodDpib2xkO2N1cnNvcjpwb2ludGVyO21hcmdpbi10b3A6MTBweDtmb250LXNpemU6MTNweDt9YXtjb2xvcjojMzhiZGY4O3RleHQtZGVjb3JhdGlvbjpub25lO2ZvbnQtc2l6ZToxMnB4O2ZvbnQtd2VpZ2h0OmJvbGQ7fTwvc3R5bGU+PC9oZWFkPjxib2R5PjxkaXYgY2xhc3M9J2JveCc+PGgyPuKfjyBJTlZJVEUgUkVHSVNURVI8L2gyPjxwPlZhbGlkIDEtVGltZSBSZWZlcnJhbCBDb2RlIFJlcXVpcmVkPC9wPjxmb3JtIGFjdGlvbj0nL2F1dGgvcmVnaXN0ZXInIG1ldGhvZD0ncG9zdCc+PGlucHV0IG5hbWU9J3JlZl9jb2RlJyBwbGFjZWhvbGRlcj0nUmVmZXJyYWwgQ29kZSAoZS5nLiBSRUYtWFhYWCknIHJlcXVpcmVkIHN0eWxlPSdib3JkZXItY29sb3I6IzM4YmRmODsnPjxpbnB1dCBuYW1lPSd1c2VybmFtZScgcGxhY2Vob2xkZXI9J0Nob29zZSBVc2VybmFtZScgcmVxdWlyZWQ+PGlucHV0IG5hbWU9J3Bhc3N3b3JkJyB0eXBlPSdwYXNzd29yZCcgcGxhY2Vob2xkZXI9J0Nob29zZSBQYXNzd29yZCcgcmVxdWlyZWQ+PGJ1dHRvbiB0eXBlPSdzdWJtaXQnPkNSRUFURSBBQ0NPVU5UPC9idXR0b24+PC9mb3JtPjxkaXYgc3R5bGU9J21hcmdpbi10b3A6MTZweDsnPjxhIGhyZWY9Jy9sb2dpbic+QmFjayB0byBMb2dpbjwvYT48L2Rpdj48L2Rpdj48L2JvZHk+PC9odG1sPg==").decode('utf-8')
+
+HTML_DASHBOARD = base64.b64decode("PCFET0NUWVBFIGh0bWw+PGh0bWwgbGFuZz0nZW4nPjxoZWFkPjxtZXRhIG5hbWU9J3ZpZXdwb3J0JyBjb250ZW50PSd3aWR0aD1kZXZpY2Utd2lkdGgsIGluaXRpYWwtc2NhbGU9MS4wLCBtYXhpbXVtLXNjYWxlPTEuMCwgdXNlci1zY2FsYWJsZT1ubyc+PHRpdGxlPlRhcmdldCBDb250cm9sPC90aXRsZT48c3R5bGU+Kntib3gtc2l6aW5nOmJvcmRlci1ib3g7bWFyZ2luOjA7cGFkZGluZzowO2ZvbnQtZmFtaWx5OnNhbnMtc2VyaWY7fWJvZHl7YmFja2dyb3VuZDojMDcwOTBlO2NvbG9yOiNmMWY1Zjk7bWFyZ2luOjA7cGFkZGluZzoxMnB4IDE0cHggNDBweCAxNHB4O30uaGVhZGVye2Rpc3BsYXk6ZmxleDtqdXN0aWZ5LWNvbnRlbnQ6c3BhY2UtYmV0d2VlbjthbGlnbi1pdGVtczpjZW50ZXI7YmFja2dyb3VuZDojMGUxMzFmO3BhZGRpbmc6MTRweCAxNnB4O2JvcmRlci1yYWRpdXM6MTRweDtib3JkZXI6MXB4IHNvbGlkICMxYTIzM2E7bWFyZ2luLWJvdHRvbToxMnB4O30uYnJhbmR7Zm9udC1zaXplOjE4cHg7Zm9udC13ZWlnaHQ6Ym9sZDtjb2xvcjojMDBmZjg4O2xldHRlci1zcGFjaW5nOjFweDt9LnVzZXItdGFne2Rpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7Z2FwOjEwcHg7Zm9udC1zaXplOjEycHg7fS5jcmVkaXRzLXBpbGx7YmFja2dyb3VuZDpyZ2JhKDAsIDI1NSwgMTM2LCAwLjEyKTtib3JkZXI6MXB4IHNvbGlkIHJnYmEoMCwgMjU1LCAxMzYsIDAuMyk7Y29sb3I6IzAwZmY4ODtwYWRkaW5nOjRweCAxMHB4O2JvcmRlci1yYWRpdXM6MTBweDtmb250LXdlaWdodDpib2xkO30uc2Vzc2lvbi10aW1lcntmb250LXNpemU6MTFweDtjb2xvcjojZjU5ZTBiO2ZvbnQtd2VpZ2h0OmJvbGQ7fS5ncmlke2Rpc3BsYXk6Z3JpZDtncmlkLXRlbXBsYXRlLWNvbHVtbnM6cmVwZWF0KDIsMWZyKTtnYXA6MTBweDttYXJnaW4tYm90dG9tOjEycHg7fS5zdGF0e2JhY2tncm91bmQ6IzBlMTMxZjtib3JkZXI6MXB4IHNvbGlkICMxYTIzM2E7cGFkZGluZzoxNHB4IDEwcHg7Ym9yZGVyLXJhZGl1czoxMnB4O3RleHQtYWxpZ246Y2VudGVyO30uc3RhdCBie2ZvbnQtc2l6ZToyMnB4O2Rpc3BsYXk6YmxvY2s7bWFyZ2luLXRvcDo0cHg7fS5zdGF0IHNwYW57Zm9udC1zaXplOjEwcHg7Y29sb3I6Izk0YTNjODtmb250LXdlaWdodDpib2xkO30uY2FyZHtiYWNrZ3JvdW5kOiMwZTEzMWY7cGFkZGluZzoxNnB4O2JvcmRlci1yYWRpdXM6MTRweDtib3JkZXI6MXB4IHNvbGlkICMxYTIzM2E7bWFyZ2luLWJvdHRvbToxMnB4O30uY2FyZC1oZWFkZXJ7ZGlzcGxheTpmbGV4O2p1c3RpZnktY29udGVudDtzcGFjZS1iZXR3ZWVuO2FsaWduLWl0ZW1zOmNlbnRlcjttYXJnaW4tYm90dG9tOjEycHg7fS5jYXJkIGgze21hcmdpbjowO2ZvbnQtc2l6ZToxNHB4O2NvbG9yOiNmOGZhZmM7Zm9udC13ZWlnaHQ6Ym9sZDt9Lm1lbnUtY29udGFpbmVye3Bvc2l0aW9uOnJlbGF0aXZlO2Rpc3BsYXk6aW5saW5lLWJsb2NrO30uZG90cy1idG57YmFja2dyb3VuZDpyZ2JhKDI1NSwyNTUsMjU1LDAuMDUpO2JvcmRlcjoxcHggc29saWQgIzFmMjkzZDtjb2xvcjojZmZmO2JvcmRlci1yYWRpdXM6NnB4O3BhZGRpbmc6NHB4IDEwcHg7Zm9udC1zaXplOjE0cHg7Y3Vyc29yOnBvaW50ZXI7fS5kcm9wZG93bi1jb250ZW50e2Rpc3BsYXk6bm9uZTtwb3NpdGlvbjphYnNvbHV0ZTtyaWdodDowO3RvcDoyOHB4O2JhY2tncm91bmQ6IzA3MGExMjtib3JkZXI6MXB4IHNvbGlkICMxZjI5M2Q7Ym9yZGVyLXJhZGl1czo4cHg7bWluLXdpZHRoOjEyMHB4O2JveC1zaGFkb3c6MCAxMHB4IDI1cHggcmdiYSgwLDAsMCwwLjgpO3otaW5kZXg6OTk7fS5kcm9wZG93bi1jb250ZW50IGF7Y29sb3I6I2Y4ZmFmYztwYWRkaW5nOjhweCAxMnB4O3RleHQtZGVjb3JhdGlvbjpub25lO2ZvbnQtc2l6ZToxMXB4O2Rpc3BsYXk6YmxvY2s7fS5kcm9wZG93bi1jb250ZW50IGE6aG92ZXJ7YmFja2dyb3VuZDojMWYyOTNKO2NvbG9yOiMwMGZmODg7fS5zaG93e2Rpc3BsYXk6YmxvY2s7fS5yYWRpby1ncm91cHtkaXNwbGF5OmZsZXg7Z2FwOjE1cHg7bWFyZ2luLWJvdHRvbToxMHB4O2ZvbnQtc2l6ZToxMnB4O30ucmFkaW8tZ3JvdXAgbGFiZWx7Y3Vyc29yOnBvaW50ZXI7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmNlbnRlcjtnYXA6NXB4O31pbnB1dCxzZWxlY3R7d2lkdGg6MTAwJTtwYWRkaW5nOjExcHg7bWFyZ2luOjVweCAwO2JhY2tncm91bmQ6IzA3MGExMjtib3JkZXI6MXB4IHNvbGlkICMxZjI5M2Q7Y29sb3I6I2ZmZjtib3JkZXItcmFkaXVzOjhweDtmb250LXNpemU6MTJweDtvdXRsaW5lOm5vbmU7fWlucHV0OmZvY3VzLHNlbGVjdDpmb2N1c3tib3JkZXItY29sb3I6IzAwZmY4ODt9YnV0dG9ue3dpZHRoOjEwMCU7cGFkZGluZzoxMXB4O2JvcmRlcjpub25lO2JvcmRlci1yYWRpdXM6OHB4O2ZvbnQtd2VpZ2h0OmJvbGQ7Zm9udC1zaXplOjEycHg7Y3Vyc29yOnBvaW50ZXI7bWFyZ2luLXRvcDo2cHg7fS50Ymx7b3ZlcmZsb3cteDphdXRvO3dpZHRoOjEwMCU7bWFyZ2luLXRvcDo4cHg7fXRhYmxle3dpZHRoOjEwMCU7Ym9yZGVyLWNvbGxhcHNlOmNvbGxhcHNlO21pbi13aWR0aDo0NDBweDtmb250LXNpemU6MTJweDt9dGh7YmFja2dyb3VuZDojMDcwYTEyO2NvbG9yOiM5NGEzYjg7cGFkZGluZzo4cHg7dGV4dC1hbGlnbjpsZWZ0O2ZvbnQtc2l6ZToxMHB4O3RleHQtdHJhbnNmb3JtOnVwcGVyY2FzZTt9dGR7cGFkZGluZzo4cHg7Ym9yZGVyLWJvdHRvbToxcHggc29saWQgIzE2MWYzMzt9LmJ0bi1jb3B5e2Rpc3BsYXk6aW5saW5lLWJsb2NrO3BhZGRpbmc6NHB4IDhweDtiYWNrZ3JvdW5kOnJnYmEoMCwyNTUsMTM2LDAuMTUpO2JvcmRlcjoxcHggc29saWQgIzAwZmY4ODtjb2xvcjojMDBmZjg4O2JvcmRlci1yYWRpdXM6NXB4O2ZvbnQtc2l6ZToxMHB4O2ZvbnQtd2VpZ2h0OmJvbGQ7Y3Vyc29yOnBvaW50ZXI7fS5idG4tY29weS5jb3BpZWR7YmFja2dyb3VuZDojMDBmZjg4O2NvbG9yOiMwNzA5MGU7fS5iYWRnZXtwYWRkaW5nOjJweCA2cHg7Ym9yZGVyLXJhZGl1czo0cHg7Zm9udC1zaXplOjlweDtmb250LXdlaWdodDpib2xkO30uYmFkZ2UuYWN0aXZle2JhY2tncm91bmQ6cmdiYSgwLDI1NSwxMzYsMC4xNSk7Y29sb3I6IzAwZmY4ODt9LmJhZGdlLnVudXNlZHtiYWNrZ3JvdW5kOnJnYmEoMjU1LDE4MywzLDAuMTUpO2NvbG9yOiNmZmIxMDM7fS5iYWRnZS5leHBpcmVke2JhY2tncm91bmQ6cmdiYSgyNTUsMCw4NSwwLjE1KTtjb2xvcjojZmYwMDU1O308L3N0eWxlPjwvaGVhZD48Ym9keT48ZGl2IGNsYXNzPSdoZWFkZXInPjxkaXYgY2xhc3M9J2JyYW5kJz7imqEgVEFSR0VUIENPTlRST0w8L2Rpdj48ZGl2IGNsYXNzPSd1c2VyLXRhZyc+PHNwYW4gY2xhc3M9J3Nlc3Npb24tdGltZXInIGlkPSd0aW1lckRpc3BsYXknPuKPsCAxMDowMDwvc3Bhbj48c3BhbiBjbGFzcz0nY3JlZGl0cy1waWxsJz7imqEgX19DUkVESVRTX18gQ1I8L3NwYW4+PGEgaHJlZj0nL2xvZ291dCcgc3R5bGU9J2NvbG9yOiNlZjQ0NDQ7Zm9udC13ZWlnaHQ6Ym9sZDt0ZXh0LWRlY29yYXRpb246bm9uZTtmb250LXNpemU6MTJweDsnPkxvZ291dDwvYT48L2Rpdj48L2Rpdj5fX0dSSURfSFRNTF9fPGRpdiBjbGFzcz0nY2FyZCcgc3R5bGU9J2JvcmRlci1jb2xvcjpyZ2JhKDAsMjU1LDEzNiwwLjMpOyc+PGRpdiBjbGFzcz0nY2FyZC1oZWFkZXInPjxoMyBzdHlsZT0nY29sb3I6IzAwZmY4ODsnPuKaoSBHRU5FUkFURSBMSUNFTlNFPC9oMz48ZGl2IGNsYXNzPSdtZW51LWNvbnRhaW5lcic+PGJ1dHRvbiBjbGFzcz0nZG90cy1idG4nIG9uY2xpY2s9J3RvZ2dsZU1lbnUoKSc+4ouEPC9idXR0b24+PGRpdiBpZD0nZG90c0Ryb3Bkb3duJyBjbGFzcz0nZHJvcGRvd24tY29udGVudCc+PGEgaHJlZj0namF2YXNjcmlwdDpsb2NhdGlvbi5yZWxvYWQoKSc+8J+UpSBSZWZyZXNoPC9hPjxhIGhyZWY9ImphdmFzY3JpcHQ6YWxlcnQoJ1ByaWNpbmc6IDFoPTAuMSwgMTJoPTEsIDFkPTIsIDMwZD0zMCBDcmVkaXRzJykiPspZIFJhdGUgTGlzdDwvYT48L2Rpdj48L2Rpdj48L2Rpdj48Zm9ybSBhY3Rpb249Jy9rZXkvY3JlYXRlJyBtZXRob2Q9J3Bvc3QnPjxkaXYgY2xhc3M9J3JhZGlvLWdyb3VwJz48bGFiZWw+PGlucHV0IHR5cGU9J3JhZGlvJyBuYW1lPSdrZXlfdHlwZScgdmFsdWU9J3JhbmRvbScgY2hlY2tlZCBvbmNsaWNrPSd0b2dnbGVDdXN0b21Cb3goZmFsc2UpJz4gUmFuZG9tIEtleTwvbGFiZWw+PGxhYmVsPjxpbnB1dCB0eXBlPSdyYWRpbycgbmFtZT0na2V5X3R5cGUnIHZhbHVlPSdjdXN0b20nIG9uY2xpY2s9J3RvZ2dsZUN1c3RvbUJveCh0cnVlKSc+IEN1c3RvbSBLZXk8L2xhYmVsPjwvZGl2PjxkaXYgaWQ9J2N1c3RvbUtleUJveCcgc3R5bGU9J2Rpc3BsYXk6bm9uZTsnPjxpbnB1dCBuYW1lPSdjdXN0b21fa2V5X25hbWUnIHBsYWNlaG9sZGVyPSdFbnRlciBDdXN0b20gS2V5IChlLmcuIFZJUC1ST0hBTiknPjwvZGl2PjxzZWxlY3QgbmFtZT0nZHVyYXRpb24nPjxvcHRpb24gdmFsdWU9JzEnPjEgSG91ciAoMC4xIENyZWRpdDwvb3B0aW9uPjxvcHRpb24gdmFsdWU9JzInPjIgSG91cnMgKDAuMiBDcmVkaXQpPC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0nNSc+NSBIb3VycyAoMC41IENyZWRpdCk8L29wdGlvbj48b3B0aW9uIHZhbHVlPSc2Jz42IEhvdXJzICgwLjYgQ3JlZGl0KTwvb3B0aW9uPjxvcHRpb24gdmFsdWU9JzEyJz4xMiBIb3VycyAoMSBDcmVkaXQpPC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0nMjQnPjEgRGF5ICgyIENyZWRpdHMpPC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0nMTY4Jz43IERheXMgKDEwIENyZWRpdHMpPC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0nMzYwJz4xNSBEYXlzICgxOCBDcmVkaXRzKTwvb3B0aW9uPjxvcHRpb24gdmFsdWU9JzcyMCc+MzAgRGF5cyAoMzAgQ3JlZGl0cyk8L29wdGlvbj48L3NlbGVjdD48YnV0dG9uIHR5cGU9J3N1Ym1pdCcgc3R5bGU9J2JhY2tncm91bmQ6IzAwZmY4ODtjb2xvcjojMDcwOTBlOyc+KyBDUkVBVEUgS0VZPC9idXR0b24+PC9mb3JtPjwvZGl2Pl9fQURNSU5fQk9YRVNfX19fUkVZX1NFQ1RJT05fX19fVV9TRUNUSU9OX188ZGl2IGNsYXNzPSdjYXJkJz48aDM+8J+UkSBMSUNFTlNFS0VZU0RJUkVDVE9SWTwvaDM+PGRpdiBjbGFzcz0ndGJsJz48dGFibGU+PHRyPjx0aD5LZXk8L3RoPjx0aD5EdXJhdGlvbjwvdGg+PHRoPlN0YXR1czwvdGg+PHRoPkhXSUQ8L3RoPjx0aD5FeHBpcnk8L3RoPjx0aD5BY3Rpb248L3RoPjwvdHI+X19LRVlTX1JPV1NfXzwvdGFibGU+PC9kaXY+PC9kaXY+PHNjcmlwdD52YXIgdGltZUxlanQgPSA2MDA7dmFyIHRpbWVyRWxlbSA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCd0aW1lckRpc3BsYXknKTt2YXIgdGltZXJJbnRlcnZhbCA9IHNldEludGVydmFsKGZ1bmN0aW9uKCkge3RpbWVMZWZ0LS07dmFyIG0gPSBNYXRoLmZsb29yKHRpbWVMZWZ0IC8gNjApO3ZhciBzID0gdGltZUxlanQgJSA2MDt0aW1lckVsZW0uaW5uZXJUZXh0ID0gJ+KPoyAnICsgKG0gPCAxMCA/ICcwJyArIG0gOiBtKSArICc6JyArIChzIDwgMTAgPyAnMCcgKyBzIDogcyk7aWYgKHRpbWVMZWZ0IDw9IDApIHtjbGVhckludGVydmFsKHRpbWVySW50ZXJ2YWwpO2FsZXJ0KCdTZXNzaW9uIFRpbWVkIE91dCAoMTAgTWludXRlcyBFeGNlZWRlZCkuIFBsZWFzZSBsb2dpbiBhZ2Fpbi4nKTtsb2NhdGlvbi5ocmVmID0gJy9sb2dvdXQnO319LCAxMDAwKTtmdW5jdGlvbiB0b2dnbGVNZW51KCkge2RvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdkb3RzRHJvcGRvd24nKS5jbGFzc0xpc3QudG9nZ2xlKCdzaG93Jyk7fWZ1bmN0aW9uIHRvZ2dsZUN1c3RvbUJveChzaG93KSB7ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2N1c3RvbUtleUJveCcpLnN0eWxlLmRpc3BsYXkgPSBzaG93ID8gJ2Jsb2NrJyA6ICdub25lJzt9ZnVuY3Rpb24gY29weUtleSh0ZXh0LCBidG4pIHtuYXZpZ2F0b3IuY2xpcGJvYXJkLndyaXRlVGV4dCh0ZXh0KS50aGVuKGZ1bmN0aW9uKCkge3ZhciBvcmlnID0gYnRuLmlubmVyVGV4dDtidG4uaW5uZXJUZXh0ID0gJ0NvcGllZCEnO2J0bi5jbGFzc0xpc3QuYWRkKCdjb3BpZWQnKTtzZXRUaW1lb3V0KGZ1bmN0aW9uKCkge2J0bi5pbm5lclRleHQgPSBvcmlnO2J0bi5jbGFzc0xpc3QucmVtb3ZlKCdjb3BpZWQnKTt9LCAxNTAwKTt9KTt9d2luZG93Lm9uY2xpY2sgPSBmdW5jdGlvbihldmVudCkge2lmICghZXZlbnQudGFyZ2V0Lm1hdGNoZXMoJy5kb3RzLWJ0bicpKSB7dmFyIGRyb3Bkb3ducyA9IGRvY3VtZW50LmdldEVsZW1lbnRzQnlDbGFzc05hbWUoJ2Ryb3Bkb3duLWNvbnRlbnQnKTtmb3IgKHZhciBpID0gMDsgaSA8IGRyb3Bkb3ducy5sZW5ndGg7IGkrKykge3ZhciBvcGVuRHJvcGRvd24gPSBkcm9wZG93bnNbaV07aWYgKG9wZW5Ecm9wZG93bi5jbGFzc0xpc3QuY29udGFpbnMoJ3Nob3cnKSkge29wZW5Ecm9wZG93bi5jbGFzc0xpc3QucmVtb3ZlKCdzaG93Jyk7fX19fTwvc2NyaXB0PjwvYm9keT48L2h0bWw+").decode('utf-8')
+
 @app.get("/owner", response_class=HTMLResponse)
 def owner_login_page():
-    return """<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Owner Portal - Target Master</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
-body{background:#05060a;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;}
-.box{background:#0b0e18;border:1px solid #ff0055;padding:32px 24px;border-radius:20px;width:100%;max-width:340px;text-align:center;box-shadow:0 0 30px rgba(255,0,85,0.25);}
-h2{color:#ff0055;font-size:20px;letter-spacing:2px;margin-bottom:6px;}
-p{font-size:11px;color:#94a3b8;margin-bottom:20px;}
-input{width:100%;padding:12px;margin:8px 0;background:#05070e;border:1px solid #1f293d;color:#fff;border-radius:10px;font-size:13px;outline:none;}
-button{width:100%;padding:12px;background:#ff0055;color:#fff;border:none;border-radius:10px;font-weight:bold;cursor:pointer;margin-top:10px;font-size:13px;}
-</style>
-</head>
-<body>
-<div class="box">
-<h2>👑 MASTER ACCESS</h2>
-<p>Authorized Super-Owners Only</p>
-<form action="/auth/login" method="post">
-<input name="username" placeholder="Master Username" required>
-<input name="password" type="password" placeholder="Master Password" required>
-<button type="submit">AUTHENTICATE MASTER</button>
-</form>
-</div>
-</body>
-</html>"""
+    return HTML_OWNER
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
-    return """<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reseller Portal - Target Core</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
-body{background:#07090e;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;}
-.box{background:#0e131f;border:1px solid #1a233a;padding:32px 24px;border-radius:20px;width:100%;max-width:340px;text-align:center;}
-h2{color:#00ff88;font-size:20px;letter-spacing:2px;margin-bottom:18px;}
-input{width:100%;padding:12px;margin:8px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:10px;font-size:13px;outline:none;}
-button{width:100%;padding:12px;background:#00ff88;color:#07090e;border:none;border-radius:10px;font-weight:bold;cursor:pointer;margin-top:10px;font-size:13px;}
-a{color:#00ff88;text-decoration:none;font-size:12px;font-weight:bold;}
-</style>
-</head>
-<body>
-<div class="box">
-<h2>⚡ RESELLER LOGIN</h2>
-<form action="/auth/login" method="post">
-<input name="username" placeholder="Username" required>
-<input name="password" type="password" placeholder="Password" required>
-<button type="submit">SIGN IN</button>
-</form>
-<div style="margin-top:16px;"><a href="/register">Have Invite Code? Register</a></div>
-</div>
-</body>
-</html>"""
+    return HTML_LOGIN
 
 @app.get("/register", response_class=HTMLResponse)
 def register_page():
-    return """<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Register - Target Core</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
-body{background:#07090e;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;}
-.box{background:#0e131f;border:1px solid rgba(56,189,248,0.3);padding:32px 24px;border-radius:20px;width:100%;max-width:340px;text-align:center;}
-h2{color:#38bdf8;font-size:20px;letter-spacing:2px;margin-bottom:6px;}
-p{font-size:11px;color:#94a3b8;margin-bottom:18px;}
-input{width:100%;padding:12px;margin:8px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:10px;font-size:13px;outline:none;}
-button{width:100%;padding:12px;background:#38bdf8;color:#07090e;border:none;border-radius:10px;font-weight:bold;cursor:pointer;margin-top:10px;font-size:13px;}
-a{color:#38bdf8;text-decoration:none;font-size:12px;font-weight:bold;}
-</style>
-</head>
-<body>
-<div class="box">
-<h2>🎟️ INVITE REGISTER</h2>
-<p>Valid 1-Time Referral Code Required</p>
-<form action="/auth/register" method="post">
-<input name="ref_code" placeholder="Referral Code (e.g. REF-XXXX)" required style="border-color:#38bdf8;">
-<input name="username" placeholder="Choose Username" required>
-<input name="password" type="password" placeholder="Choose Password" required>
-<button type="submit">CREATE RESELLER ACCOUNT</button>
-</form>
-<div style="margin-top:16px;"><a href="/login">Back to Login</a></div>
-</div>
-</body>
-</html>"""
+    return HTML_REG
 
 @app.post("/auth/register")
 def auth_register(ref_code: str = Form(...), username: str = Form(...), password: str = Form(...)):
@@ -185,7 +110,6 @@ def auth_login(username: str = Form(...), password: str = Form(...)):
     if not u or u["password_hash"] != hash_pw(password) or u["status"] == "banned":
         return HTMLResponse("<script>alert('Invalid Login Credentials');history.back();</script>")
         
-    # Cookie with 10-minute validity timestamp
     current_time = str(time.time())
     token = f"{u['username']}:{u['role']}:{current_time}"
     res = RedirectResponse("/dashboard", status_code=302)
@@ -206,167 +130,4 @@ def dashboard(u: dict = Depends(get_user)):
     with db() as c:
         if is_master:
             keys = c.execute("SELECT * FROM licenses ORDER BY rowid DESC").fetchall()
-            active_users = c.execute("SELECT * FROM users WHERE username!='owner' ORDER BY id DESC").fetchall()
-            referrals = c.execute("SELECT * FROM referral_codes ORDER BY rowid DESC").fetchall()
-        else:
-            keys = c.execute("SELECT * FROM licenses WHERE created_by=? ORDER BY rowid DESC", (u["username"],)).fetchall()
-            active_users = []
-            referrals = []
-            
-    tot_keys = len(keys)
-    used_keys = sum(1 for k in keys if k["status"] == "active")
-    unused_keys = sum(1 for k in keys if k["status"] == "unused")
-    tot_resellers = len(active_users)
-
-    k_tr = "".join([f"<tr><td style='color:#00f0ff;font-weight:bold;font-family:monospace;'>{k['key']}</td><td>{k['duration_hours']}h</td><td><span class='badge {k['status']}'>{k['status'].upper()}</span></td><td style='color:#94a3b8;font-family:monospace;font-size:11px;'>{k['hwid'] or '-'}</td><td style='color:#94a3b8;font-size:11px;'>{k['expiry_at'] or '-'}</td><td><button class='btn-copy' onclick=\"copyKey('{k['key']}', this)\">Copy</button><a href='/hwid/{k['key']}' style='color:#38bdf8;font-size:11px;text-decoration:none;margin-left:6px;'>Reset</a><a href='/kdel/{k['key']}' style='color:#ef4444;font-size:11px;text-decoration:none;margin-left:6px;'>Del</a></td></tr>" for k in keys])
-    
-    admin_boxes = ""
-    ref_section = ""
-    u_section = ""
-    grid_html = ""
-
-    if is_master:
-        u_tr = "".join([f"<tr><td>{x['username']}</td><td>{x['role']}</td><td style='color:#00ff88;font-weight:bold;'>{x['credits']}</td><td>{x['status']}</td><td>{x['created_by']}</td><td><a href='/udel/{x['id']}' style='color:#ef4444;text-decoration:none;'>Del</a></td></tr>" for x in active_users]) if active_users else ""
-        r_tr = "".join([f"<tr><td style='color:#38bdf8;font-weight:bold;font-family:monospace;'>{r['code']}</td><td>{r['role']}</td><td>{r['credits']}</td><td>{r['created_by']}</td><td><button class='btn-copy' onclick=\"copyKey('{r['code']}', this)\">Copy</button> <a href='/ref/del/{r['code']}' style='color:#ef4444;text-decoration:none;margin-left:6px;'>Revoke</a></td></tr>" for r in referrals]) if referrals else ""
-
-        grid_html = f"""<div class="grid">
-        <div class="stat"><span>TOTAL KEYS</span><b style="color:#00f0ff;">{tot_keys}</b></div>
-        <div class="stat"><span>ACTIVE KEYS</span><b style="color:#00ff88;">{used_keys}</b></div>
-        <div class="stat"><span>UNUSED KEYS</span><b style="color:#ffb703;">{unused_keys}</b></div>
-        <div class="stat"><span>ALL USERS</span><b style="color:#a855f7;">{tot_resellers}</b></div>
-        </div>"""
-
-        admin_boxes = """<div class='card' style='border-color:rgba(56,189,248,0.3);'>
-        <h3 style='color:#38bdf8;'>🎟️ CREATE 1-TIME REFERRAL CODE</h3>
-        <form action='/ref/create' method='post'>
-        <select name='role'><option value='reseller'>For Reseller</option><option value='admin'>For Admin</option></select>
-        <input name='credits' type='number' placeholder='Starting Credits' value='20'>
-        <button type='submit' style='background:#38bdf8;color:#07090e;'>+ Generate Invite Code</button>
-        </form></div>
-        <div class='card' style='border-color:rgba(239,68,68,0.3);'><h3 style='color:#ef4444;'>🚫 FIREWALL IP/HWID BAN</h3><form action='/block/add' method='post'><input name='ident' placeholder='Target HWID or IP' required><button type='submit' style='background:#ef4444;color:#fff;'>Block Permanently</button></form></div>"""
-
-        if referrals:
-            ref_section = f"""<div class='card' style='border-color:rgba(56,189,248,0.3);'><h3 style='color:#38bdf8;'>🎟️ ACTIVE 1-TIME REFERRAL CODES</h3><div class='tbl'><table><tr><th>Code</th><th>Role</th><th>Credits</th><th>Created By</th><th>Action</th></tr>{r_tr}</table></div></div>"""
-        if active_users:
-            u_section = f"<div class='card'><h3>👥 ALL RESELLERS / USERS</h3><div class='tbl'><table><tr><th>User</th><th>Role</th><th>Credits</th><th>Status</th><th>Source</th><th>Action</th></tr>{u_tr}</table></div></div>"
-    else:
-        grid_html = f"""<div class="grid" style="grid-template-columns: repeat(3, 1fr);">
-        <div class="stat"><span>MY KEYS</span><b style="color:#00f0ff;">{tot_keys}</b></div>
-        <div class="stat"><span>ACTIVE</span><b style="color:#00ff88;">{used_keys}</b></div>
-        <div class="stat"><span>UNUSED</span><b style="color:#ffb703;">{unused_keys}</b></div>
-        </div>"""
-
-    tpl = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Dashboard - Target Core</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
-body{background:#07090e;color:#f1f5f9;margin:0;padding:12px 14px 40px 14px;}
-.header{display:flex;justify-content:space-between;align-items:center;background:#0e131f;padding:14px 16px;border-radius:14px;border:1px solid #1a233a;margin-bottom:12px;}
-.brand{font-size:18px;font-weight:bold;color:#00ff88;letter-spacing:1px;}
-.user-tag{display:flex;align-items:center;gap:10px;font-size:12px;}
-.credits-pill{background:rgba(0, 255, 136, 0.12);border:1px solid rgba(0, 255, 136, 0.3);color:#00ff88;padding:4px 10px;border-radius:10px;font-weight:bold;}
-.session-timer{font-size:11px;color:#f59e0b;font-weight:bold;}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;}
-.stat{background:#0e131f;border:1px solid #1a233a;padding:14px 10px;border-radius:12px;text-align:center;}
-.stat b{font-size:22px;display:block;margin-top:4px;}
-.stat span{font-size:10px;color:#94a3b8;font-weight:bold;}
-.card{background:#0e131f;padding:16px;border-radius:14px;border:1px solid #1a233a;margin-bottom:12px;}
-.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
-.card h3{margin:0;font-size:14px;color:#f8fafc;font-weight:bold;}
-.menu-container{position:relative;display:inline-block;}
-.dots-btn{background:rgba(255,255,255,0.05);border:1px solid #1f293d;color:#fff;border-radius:6px;padding:4px 10px;font-size:14px;cursor:pointer;}
-.dropdown-content{display:none;position:absolute;right:0;top:28px;background:#070a12;border:1px solid #1f293d;border-radius:8px;min-width:120px;box-shadow:0 10px 25px rgba(0,0,0,0.8);z-index:99;}
-.dropdown-content a{color:#f8fafc;padding:8px 12px;text-decoration:none;font-size:11px;display:block;}
-.dropdown-content a:hover{background:#1f293d;color:#00ff88;}
-.show{display:block;}
-.radio-group{display:flex;gap:15px;margin-bottom:10px;font-size:12px;}
-.radio-group label{cursor:pointer;display:flex;align-items:center;gap:5px;}
-input,select{{width:100%;padding:11px;margin:5px 0;background:#070a12;border:1px solid #1f293d;color:#fff;border-radius:8px;font-size:12px;outline:none;}
-button{width:100%;padding:11px;border:none;border-radius:8px;font-weight:bold;font-size:12px;cursor:pointer;margin-top:6px;}
-.tbl{overflow-x:auto;width:100%;margin-top:8px;}
-table{width:100%;border-collapse:collapse;min-width:440px;font-size:12px;}
-th{background:#070a12;color:#94a3b8;padding:8px;text-align:left;font-size:10px;text-transform:uppercase;}
-td{padding:8px;border-bottom:1px solid #161f33;}
-.btn-copy{display:inline-block;padding:4px 8px;background:rgba(0,255,136,0.15);border:1px solid #00ff88;color:#00ff88;border-radius:5px;font-size:10px;font-weight:bold;cursor:pointer;}
-.btn-copy.copied{background:#00ff88;color:#07090e;}
-.badge{padding:2px 6px;border-radius:4px;font-size:9px;font-weight:bold;}
-.badge.active{background:rgba(0,255,136,0.15);color:#00ff88;}
-.badge.unused{background:rgba(255,183,3,0.15);color:#ffb703;}
-.badge.expired{background:rgba(239,68,68,0.15);color:#ef4444;}
-</style>
-</head>
-<body>
-<div class="header">
-<div class="brand">⚡ TARGET CONTROL</div>
-<div class="user-tag">
-<span class="session-timer" id="timerDisplay">⏱️ 10:00</span>
-<span class="credits-pill">⚡ __CREDITS__ CR</span>
-<a href="/logout" style="color:#ef4444;font-weight:bold;text-decoration:none;font-size:12px;">Logout</a>
-</div>
-</div>
-
-__GRID_HTML__
-
-<div class="card" style="border-color:rgba(0,255,136,0.3);">
-<div class="card-header">
-<h3 style="color:#00ff88;">⚡ GENERATE LICENSE</h3>
-<div class="menu-container">
-<button class="dots-btn" onclick="toggleMenu()">⋮</button>
-<div id="dotsDropdown" class="dropdown-content">
-<a href="javascript:location.reload()">🔄 Refresh</a>
-<a href="javascript:alert('Pricing: 1h=0.1, 12h=1, 1d=2, 30d=30 Credits')">💡 Rate List</a>
-</div>
-</div>
-</div>
-
-<form action="/key/create" method="post">
-<div class="radio-group">
-<label><input type="radio" name="key_type" value="random" checked onclick="toggleCustomBox(false)"> Random Key</label>
-<label><input type="radio" name="key_type" value="custom" onclick="toggleCustomBox(true)"> Custom Key</label>
-</div>
-
-<div id="customKeyBox" style="display:none;">
-<input name="custom_key_name" placeholder="Enter Custom Key (e.g. VIP-ROHAN)">
-</div>
-
-<select name="duration">
-<option value="1">1 Hour (0.1 Credit)</option>
-<option value="2">2 Hours (0.2 Credit)</option>
-<option value="5">5 Hours (0.5 Credit)</option>
-<option value="6">6 Hours (0.6 Credit)</option>
-<option value="12">12 Hours (1 Credit)</option>
-<option value="24">1 Day (2 Credits)</option>
-<option value="168">7 Days (10 Credits)</option>
-<option value="360">15 Days (18 Credits)</option>
-<option value="720">30 Days (30 Credits)</option>
-</select>
-<button type="submit" style="background:#00ff88;color:#07090e;">+ CREATE KEY</button>
-</form>
-</div>
-
-__ADMIN_BOXES__
-__REF_SECTION__
-__U_SECTION__
-
-<div class="card">
-<h3>🔑 LICENSE KEYS DIRECTORY</h3>
-<div class="tbl">
-<table>
-<tr><th>Key</th><th>Duration</th><th>Status</th><th>HWID</th><th>Expiry</th><th>Action</th></tr>
-__KEYS_ROWS__
-</table>
-</div>
-</div>
-
-<script>
-// 10-Minute Auto-Logout Timer (600 Seconds)
-var timeLeft = 600;
-var timerElem = document.getElementById("timerDisplay");
-var timerInterval = setInterval(function() {
-  timeLeft--;
-  var m = Math.floor(timeLeft / 60);
-  var s = timeLeft % 60;
-  timerElem.innerText = "⏱️ " + (m < 10 
+            active_users = c.execute("SELECT * FROM users WHERE username!=
