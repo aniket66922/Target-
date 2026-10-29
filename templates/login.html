@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+  <title>Admin Login</title>
+  <style>
+    body { font-family: Arial; background: #f2f4f8; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    form { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.1); width: 280px; }
+    input, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; }
+    button { background: #3b6cf6; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    .msg { color: red; }
+  </style>
+</head>
+<body>
+  <form method="post">
+    <h2>Admin Login</h2>
+    {% for m in get_flashed_messages() %}<p class="msg">{{ m }}</p>{% endfor %}
+    <input name="username" placeholder="Username" required>
+    <input name="password" type="password" placeholder="Password" required>
+    <button type="submit">Login</button>
+  </form>
+</body>
+</html>
