@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+  <title>Users</title>
+  <style>
+    body { font-family: Arial; margin: 30px; background: #f2f4f8; }
+    table { width: 100%; border-collapse: collapse; background: white; }
+    th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+    th { background: #3b6cf6; color: white; }
+    a.btn, button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; color: white; }
+    .add { background: #22a559; } .edit { background: #f0a020; } .del { background: #e04040; } .tog { background: #666; }
+    .top { display: flex; justify-content: space-between; margin-bottom: 15px; }
+    form { display: inline; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h2>User Management</h2>
+    <div><a class="btn add" href="{{ url_for('add_user') }}">+ Add User</a>
+         <a class="btn tog" href="{{ url_for('logout') }}">Logout</a></div>
+  </div>
+  <table>
+    <tr><th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Actions</th></tr>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.id }}</td><td>{{ u.name }}</td><td>{{ u.email }}</td><td>{{ u.status }}</td>
+      <td>
+        <a class="btn edit" href="{{ url_for('edit_user', user_id=u.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('toggle_user', user_id=u.id) }}"><button class="tog">Block/Unblock</button></form>
+        <form method="post" action="{{ url_for('delete_user', user_id=u.id) }}" onsubmit="return confirm('Delete this user?')"><button class="del">Delete</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
